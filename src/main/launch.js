@@ -84,10 +84,13 @@ async function start({ version, serverId = null }) {
     const authorization = await accounts.freshAuth(account);
     if (!authorization) throw new Error('Sign in again to play.');
 
-    // Neueste Vortex-Dateien aus dem Admin-Bereich holen (hoechstens ~8 s warten)
+    // Neueste Vortex-Dateien (Client/Addon) holen -- VOR dem Einspielen, damit
+    // ein Update schon bei DIESEM Start benutzt wird. Die Jars sind klein;
+    // 30 s reichen auch bei langsamem Netz. Ohne Netz bricht das Manifest
+    // nach 10 s ab, dann startet das Spiel mit den vorhandenen Dateien.
     if (instances.bundledVersions().includes(v)) {
       progress('prepare', 'Checking for Vortex updates', null);
-      const r = await Promise.race([vortexfiles.refresh(ver => instances.packagedEntries(ver), { versionsOnly: [v] }), sleep(8000).then(() => null)]);
+      const r = await Promise.race([vortexfiles.refresh(ver => instances.packagedEntries(ver), { versionsOnly: [v] }), sleep(30000).then(() => null)]);
       for (const u of r?.updated || []) notify('success', `${u.name} ${u.newVersion} for Minecraft ${u.version} downloaded.`);
     }
 

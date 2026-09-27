@@ -228,6 +228,12 @@ async function start({ version, serverId = null, address = null }) {
       try { shotWatcher && shotWatcher.close(); } catch (_) {}
       sessions.delete(id);
       try { instances.addPlaytime(v, Date.now() - launchedAt); } catch (_) {}
+      // Waehrend des Spiels geladene Updates: jetzt, wo die alten Jars frei
+      // sind, einspielen und die alten entfernen (Windows sperrt sie vorher).
+      setTimeout(() => {
+        if ([...sessions.values()].some(s => s.version === v)) return;
+        try { if (instances.bundledVersions().includes(v)) instances.syncBundled(v); } catch (_) {}
+      }, 1500);
       core.send('versions', instances.allVersions().map(instances.summary));
       publishSessions();
       const crashed = code !== 0 && code !== null && !session.stopped;

@@ -180,29 +180,47 @@ function syncBundled(version) {
   const keep = new Set(active.map(e => e.name.toLowerCase()));
   const ids = new Set(all.map(e => e.id));
   let removed = 0, copied = 0;
-  for (const name of fs.readdirSync(mods)) {
-    const lower = name.toLowerCase();
-    if (keep.has(lower) || !/\.jar(\.disabled)?$/.test(lower)) continue;
-    const base = lower.replace(/\.disabled$/, '');
-    let id = null;
-    if (isVortexJar(base)) id = fallbackId(base);
-    else {
-      const info = readModInfo(path.join(mods, name));
-      id = info?.id || null;
-    }
-    if (id && (ids.has(id) || isCoreId(id) || isAddonId(id))) {
-      try { fs.rmSync(path.join(mods, name), { force: true }); removed++; } catch (_) {}
+  const locked = [];
+  for (const name of staleFiles(mods, keep, ids)) {
+    try { fs.rmSync(path.join(mods, name), { force: true }); removed++; }
+    catch (e) {
+      // Windows: Eine Jar, die ein laufendes Minecraft geoeffnet hat, laesst sich
+      // nicht loeschen. Dann bleibt sie liegen -- und wuerde beim naechsten Start
+      // doppelt geladen. Merken und spaeter (Spielende/naechster Start) nochmal.
+      locked.push(name);
+      log(`${version}: old Vortex file ${name} could not be removed (${e.code || e.message}).`, 'warn');
     }
   }
   for (const e of active) {
     const to = path.join(mods, e.name);
     if (!exists(to) || !sameContent(e.file, to)) {
-      fs.copyFileSync(e.file, to);
-      copied++;
+      try { fs.copyFileSync(e.file, to); copied++; }
+      catch (err) { locked.push(e.name); log(`${version}: ${e.name} could not be written (${err.code || err.message}).`, 'warn'); }
     }
   }
   if (copied || removed) log(`${version}: ${copied} Vortex file(s) updated, ${removed} outdated file(s) removed.`);
-  return { copied, removed };
+  return { copied, removed, locked };
+}
+
+/**
+ * Jars im Mods-Ordner, die zu Vortex (oder einer mitgelieferten Mod-ID)
+ * gehoeren, aber nicht die aktuelle Datei sind -- egal wie sie heissen und
+ * ob sie deaktiviert sind.
+ */
+function staleFiles(mods, keep, ids) {
+  const out = [];
+  let names = [];
+  try { names = fs.readdirSync(mods); } catch (_) { return out; }
+  for (const name of names) {
+    const lower = name.toLowerCase();
+    if (keep.has(lower) || !/\.jar(\.disabled)?$/.test(lower)) continue;
+    const base = lower.replace(/\.disabled$/, '');
+    let id = null;
+    if (isVortexJar(base)) id = fallbackId(base);
+    else id = readModInfo(path.join(mods, name))?.id || null;
+    if (id && (ids.has(id) || isCoreId(id) || isAddonId(id))) out.push(name);
+  }
+  return out;
 }
 
 /** Liegt eine Fabric API in der Instanz? (Neue Versionen aus dem Admin-Bereich bringen evtl. keine mit.) */
@@ -269,6 +287,9 @@ async function prepare(version) {
   ensureDir(paths.modsRoot(v));
   ensureDir(paths.resourcePacksRoot(v));
   const sync = syncBundled(v);
+  if (sync.locked.length) {
+    throw new Error(`An old Vortex file is still in use (${sync.locked.join(', ')}). Is Minecraft ${v} still running? Close it and press Play again.`);
+  }
   const fabric = await ensureFabric(v);
   return { version: v, ...fabric, ...sync, vortex: bundledVersions().includes(v), hasFabricApi: hasFabricApi(v) };
 }
@@ -370,6 +391,13 @@ function listMods(version) {
   let files = [];
   try { files = fs.readdirSync(dir).filter(n => /\.jar(\.disabled)?$/i.test(n)); } catch (_) {}
   const bundle = new Set(bundledJars(v).map(n => n.toLowerCase()));
+  // Alte Vortex-Dateien, die gerade nicht geloescht werden konnten (Spiel
+  // laeuft noch), nicht als zweiten Client/zweites Addon anzeigen -- sie
+  // werden beim Spielende bzw. naechsten Start entfernt.
+  const stale = new Set(bundledVersions().includes(v)
+    ? staleFiles(dir, new Set(activeBundle(v).map(n => n.toLowerCase())), new Set(bundleEntries(v).map(e => e.id)))
+    : []);
+  files = files.filter(f => !stale.has(f));
   const projects = projectMap(v);
   const byFile = {};
   for (const [pid, rec] of Object.entries(projects)) {

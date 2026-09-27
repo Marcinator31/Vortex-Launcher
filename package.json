@@ -1,0 +1,79 @@
+{
+  "name": "vortex-launcher",
+  "version": "2.1.0",
+  "description": "Vortex Client Launcher - Minecraft with the Vortex Client, Fabric, mods and servers",
+  "main": "src/main/main.js",
+  "author": "Vortex Client",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis portable",
+    "dist:setup": "electron-builder --win nsis",
+    "dist:portable": "electron-builder --win portable",
+    "dist:dir": "electron-builder --win --dir"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9",
+    "minecraft-launcher-core": "^3.18.2",
+    "msmc": "^5.0.5",
+    "pngjs": "^7.0.0"
+  },
+  "devDependencies": {
+    "electron": "^37.2.6",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.vortexclient.launcher",
+    "productName": "Vortex Client",
+    "copyright": "Vortex Client",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "assets/modpacks/**"
+    ],
+    "publish": {
+      "provider": "github",
+      "owner": "Lukas3578",
+      "repo": "Vortex-launcher",
+      "releaseType": "release"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "assets/icon.ico",
+      "artifactName": "Vortex-Client-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true,
+      "language": "1031",
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "installerHeaderIcon": "assets/icon.ico",
+      "installerSidebar": "build/installer-sidebar.bmp",
+      "uninstallerSidebar": "build/installer-sidebar.bmp",
+      "runAfterFinish": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Vortex Client",
+      "artifactName": "Vortex-Client-Setup-${version}.${ext}",
+      "deleteAppDataOnUninstall": false,
+      "include": "build/installer.nsh"
+    },
+    "portable": {
+      "artifactName": "Vortex-Client-Portable-${version}.${ext}"
+    }
+  }
+}

@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' data: blob: https://cdn.modrinth.com; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' data: blob:; object-src 'none'; base-uri 'none'" />
+<title>Vortex Client</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<!-- Icons (selbst gezeichnet, Strichstaerke kommt aus dem CSS) -->
+<svg class="sprite" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3.5 11 12 4l8.5 7"/><path d="M5.5 9.5V20h13V9.5"/><path d="M10 20v-5h4v5"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></symbol>
+  <symbol id="i-cube" viewBox="0 0 24 24"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m12 12 8-4.5M12 12 4 7.5M12 12v9"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="10" r="1.8"/><path d="m21 16-5-5-9 9"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01M11 7.5h6M11 16.5h6"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="m7 9 3 3-3 3M12.5 15h4.5"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2h7.5A2.5 2.5 0 0 1 21 9.5v8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5v-10Z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.35-5.65L20 8.5"/><path d="M20 4v4.5h-4.5"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9.5" rx="2"/><path d="M8.5 11V8a3.5 3.5 0 0 1 7 0v3"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 20h14"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5M5 20h14"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-left" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-8.5 8.5M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5L8 5.5Z"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 3.8 5.7 3.8 9S14.5 18.3 12 21M12 3C9.5 5.7 8.2 8.7 8.2 12S9.5 18.3 12 21"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4 2.8 19.5h18.4L12 4Z"/><path d="M12 10v4.5M12 17.2h.01"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.8h.01"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8.5" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 5.2a3.5 3.5 0 0 1 0 6.6M18 14.2a6.5 6.5 0 0 1 3.5 5.8"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 3 5 13.5h6L10 21l8-10.5h-6L13 3Z"/></symbol>
+  <symbol id="i-memory" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="10" rx="2"/><path d="M7 7v10M11 7v10M15 7v10M6 17v3M18 17v3"/></symbol>
+  <symbol id="i-coffee" viewBox="0 0 24 24"><path d="M5 9h11v5a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5V9Z"/><path d="M16 10.5h1.5a2.5 2.5 0 0 1 0 5H16M8 3.5c0 1.5 1 1.5 1 3M12 3.5c0 1.5 1 1.5 1 3"/></symbol>
+  <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3.5 13.8 9 19.5 11 13.8 13 12 18.5 10.2 13 4.5 11 10.2 9 12 3.5Z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6 6 6M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4"/></symbol>
+  <symbol id="i-map" viewBox="0 0 24 24"><path d="m3.5 6.5 5.5-2.5 6 2.5 5.5-2.5v13.5l-5.5 2.5-6-2.5-5.5 2.5V6.5Z"/><path d="M9 4v13.5M15 6.5V20"/></symbol>
+  <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.8l1.4-2h4.6l1.4 2h1.8A2.5 2.5 0 0 1 20 8.5v9a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 17.5v-9Z"/><circle cx="12" cy="13" r="3.5"/></symbol>
+  <symbol id="i-shirt" viewBox="0 0 24 24"><path d="M8.5 3.5 4 6l-1.5 4.5 3 1.2V20.5h13v-8.8l3-1.2L20 6l-4.5-2.5c-.6 1.5-1.9 2.5-3.5 2.5s-2.9-1-3.5-2.5Z"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 4.5 6v5.5c0 4.5 3.2 8.2 7.5 9.5 4.3-1.3 7.5-5 7.5-9.5V6L12 3Z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-save" viewBox="0 0 24 24"><path d="M5 4h11l3 3v12.5A.5.5 0 0 1 18.5 20h-13a.5.5 0 0 1-.5-.5V4Z"/><path d="M8 4v5h7V4M8 20v-6h8v6"/></symbol>
+  <symbol id="i-history" viewBox="0 0 24 24"><path d="M3.5 12a8.5 8.5 0 1 0 2.5-6"/><path d="M3.5 4.5V9H8M12 8v4.5l3 2"/></symbol>
+  <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+  <symbol id="i-package" viewBox="0 0 24 24"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="M4.5 7.8 12 12l7.5-4.2M12 12v9M8 5.3l8 4.5"/></symbol>
+  <symbol id="i-news" viewBox="0 0 24 24"><rect x="3" y="4.5" width="15" height="15" rx="2"/><path d="M18 8.5h2.5V17a2.5 2.5 0 0 1-5 0M6.5 8.5h8M6.5 12h8M6.5 15.5h5"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="m11 12 8.5-8.5M16 7l2.5 2.5M14 9l2 2"/></symbol>
+</svg>
+
+<!-- Startbildschirm -->
+<div id="splash" class="splash">
+  <div class="splash-logo">
+    <img class="ring" src="../../assets/branding/logo_ring.png" alt="" />
+    <img class="mark" src="../../assets/branding/logo_v.png" alt="Vortex" />
+  </div>
+  <div class="splash-name">VORTEX <span>CLIENT</span></div>
+  <div class="splash-bar"><i></i></div>
+</div>
+
+<div id="app" class="app">
+  <!-- Titelleiste -->
+  <header class="titlebar">
+    <div class="titlebar-brand"><img src="../../assets/branding/logo.png" alt="" /><span>Vortex Client</span></div>
+    <div class="titlebar-center" id="titlebarStatus"></div>
+    <div class="window-buttons">
+      <button class="wb" id="wbMin" title="Minimize"><svg viewBox="0 0 12 12"><path d="M2 6h8"/></svg></button>
+      <button class="wb" id="wbMax" title="Maximize"><svg viewBox="0 0 12 12"><rect x="2.2" y="2.2" width="7.6" height="7.6" rx="1"/></svg></button>
+      <button class="wb close" id="wbClose" title="Close"><svg viewBox="0 0 12 12"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7"/></svg></button>
+    </div>
+  </header>
+
+  <!-- Seitenleiste -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-logo"><img class="ring" src="../../assets/branding/logo_ring.png" alt="" /><img src="../../assets/branding/logo_v.png" alt="" /></div>
+      <div class="brand-text"><strong>VORTEX</strong><span>CLIENT LAUNCHER</span></div>
+    </div>
+    <nav class="nav">
+      <button class="nav-item active" data-page="home"><svg><use href="#i-home"/></svg><span>Home</span></button>
+      <button class="nav-item" data-page="versions"><svg><use href="#i-layers"/></svg><span>Versions</span></button>
+      <p class="nav-label">CONTENT</p>
+      <button class="nav-item" data-page="mods"><svg><use href="#i-cube"/></svg><span>Mods</span><i class="nav-count" id="modsUpdateBadge" hidden></i></button>
+      <button class="nav-item" data-page="packs"><svg><use href="#i-image"/></svg><span>Resource Packs</span></button>
+      <button class="nav-item" data-page="shaders"><svg><use href="#i-sun"/></svg><span>Shaders</span></button>
+      <button class="nav-item" data-page="worlds"><svg><use href="#i-map"/></svg><span>Worlds</span></button>
+      <button class="nav-item" data-page="shots"><svg><use href="#i-camera"/></svg><span>Screenshots</span></button>
+      <p class="nav-label">PLAY</p>
+      <button class="nav-item" data-page="servers"><svg><use href="#i-server"/></svg><span>Servers</span></button>
+      <button class="nav-item" data-page="skins"><svg><use href="#i-shirt"/></svg><span>Skins</span></button>
+      <div class="nav-sep"></div>
+      <button class="nav-item" data-page="settings"><svg><use href="#i-sliders"/></svg><span>Settings</span><i class="nav-dot" id="updateDot" hidden></i></button>
+      <button class="nav-item admin-item" data-page="admin" id="navAdmin" hidden><svg><use href="#i-shield"/></svg><span>Admin</span></button>
+    </nav>
+    <div class="sidebar-foot">
+      <button class="console-toggle" id="consoleToggle"><svg><use href="#i-terminal"/></svg><span>Console</span><b id="consoleBadge" hidden>!</b></button>
+      <div class="account" id="account"></div>
+    </div>
+  </aside>
+
+  <main class="content">
+    <!-- ================= HOME ================= -->
+    <section class="page active" id="page-home">
+      <div class="hero">
+        <div class="hero-art" aria-hidden="true">
+          <div class="glow g1"></div><div class="glow g2"></div>
+          <img class="hero-ring" src="../../assets/branding/logo_ring.png" alt="" />
+          <img class="hero-v" src="../../assets/branding/logo_v.png" alt="" />
+          <div class="hero-grid"></div>
+        </div>
+        <div class="hero-copy">
+          <p class="eyebrow" id="heroEyebrow">VORTEX CLIENT</p>
+          <h1 id="heroTitle">Ready when you are.</h1>
+          <p class="hero-sub" id="heroSub">Fabric, the Vortex Client and your mods, set up in one click.</p>
+        </div>
+        <div class="play-dock">
+          <div class="version-picker" id="versionPicker">
+            <button class="vp-button" id="vpButton" type="button">
+              <span class="vp-label">VERSION</span>
+              <span class="vp-value" id="vpValue">26.2</span>
+              <span class="vp-tag" id="vpTag">Vortex</span>
+              <svg class="vp-chev"><use href="#i-chevron"/></svg>
+            </button>
+            <div class="vp-menu" id="vpMenu" hidden></div>
+          </div>
+          <button class="play" id="playBtn" type="button">
+            <span class="play-fill" id="playFill"></span>
+            <span class="play-inner">
+              <svg class="play-icon"><use href="#i-play"/></svg>
+              <span class="play-text"><b id="playLabel">PLAY</b><small id="playSub">Minecraft 26.2</small></span>
+            </span>
+          </button>
+          <button class="icon-btn big" id="stopBtn" title="Stop Minecraft" hidden><svg><use href="#i-stop"/></svg></button>
+        </div>
+      </div>
+
+      <div class="crash-banner" id="crashBanner" hidden>
+        <svg><use href="#i-alert"/></svg>
+        <div><strong id="crashBannerTitle">Minecraft crashed</strong><span id="crashBannerText"></span></div>
+        <button class="btn small" id="crashBannerOpen">Show analysis</button>
+        <button class="icon-btn" id="crashBannerClose" title="Close"><svg><use href="#i-x"/></svg></button>
+      </div>
+
+      <div class="home-grid">
+        <section class="card">
+          <div class="card-head"><h3><svg><use href="#i-server"/></svg>Quick join</h3><button class="link" data-goto="servers">All servers</button></div>
+          <div id="quickServers" class="quick-servers"></div>
+        </section>
+        <section class="card">
+          <div class="card-head"><h3><svg><use href="#i-layers"/></svg>Instance</h3><button class="link" data-goto="versions">Versions</button></div>
+          <div id="instanceCard"></div>
+        </section>
+        <section class="card news">
+          <div class="card-head"><h3><svg><use href="#i-sparkle"/></svg>What's new</h3><span class="muted small" id="newsVersion"></span></div>
+          <ul class="news-list" id="newsList"></ul>
+        </section>
+      </div>
+    </section>
+
+    <!-- ================= VERSIONS ================= -->
+    <section class="page" id="page-versions">
+      <div class="page-head">
+        <div><p class="eyebrow">INSTANCES</p><h2>Versions</h2><p class="muted">Every version has its own folder: its own mods, worlds and settings.</p></div>
+        <div class="head-tools">
+          <button class="btn ghost" id="importPack"><svg><use href="#i-download"/></svg>Import modpack</button>
+          <form class="inline-form" id="addVersionForm">
+            <input id="addVersionInput" placeholder="Any release, e.g. 1.20.1" maxlength="12" autocomplete="off" spellcheck="false" />
+            <button class="btn" type="submit"><svg><use href="#i-plus"/></svg>Add version</button>
+          </form>
+        </div>
+      </div>
+      <div class="version-grid" id="versionGrid"></div>
+    </section>
+
+    <!-- ================= MODS ================= -->
+    <section class="page" id="page-mods">
+      <div class="page-head">
+        <div><p class="eyebrow">CONTENT</p><h2>Mods</h2><p class="muted">Add Fabric mods from Modrinth or your own .jar files.</p></div>
+        <div class="head-tools"><div class="instance-chip" data-instance-chip></div></div>
+      </div>
+      <div class="tabs" data-tabs="mods">
+        <button class="tab active" data-tab="installed">Installed <span class="count" id="modsCount">0</span></button>
+        <button class="tab" data-tab="discover">Discover</button>
+      </div>
+      <div class="tab-panel active" data-panel="mods-installed">
+        <div class="toolbar">
+          <label class="search"><svg><use href="#i-search"/></svg><input id="modsFilter" placeholder="Filter installed mods" autocomplete="off" spellcheck="false" /></label>
+          <span class="grow"></span>
+          <button class="btn ghost" id="modsCheckUpdates"><svg><use href="#i-refresh"/></svg>Check for updates</button>
+          <button class="btn ghost" id="modsPerformance" title="Sodium, Lithium and Entity Culling"><svg><use href="#i-bolt"/></svg>Performance pack</button>
+          <button class="btn ghost" id="modsImport"><svg><use href="#i-plus"/></svg>Add .jar files</button>
+          <button class="icon-btn" id="modsFolder" title="Open folder"><svg><use href="#i-folder"/></svg></button>
+        </div>
+        <div class="update-banner" id="modsUpdateBanner" hidden>
+          <svg><use href="#i-arrow-up"/></svg><span id="modsUpdateText"></span>
+          <button class="btn small" id="modsUpdateAll"><svg><use href="#i-download"/></svg>Update all</button>
+        </div>
+        <div class="list" id="modsList"></div>
+        <div class="drop-hint" id="modsDropHint">Tip: drag .jar files into this window to add them.</div>
+      </div>
+      <div class="tab-panel" data-panel="mods-discover">
+        <div class="toolbar">
+          <label class="search grow"><svg><use href="#i-search"/></svg><input id="modsQuery" placeholder="Search Modrinth, e.g. sodium, minimap, voice chat" autocomplete="off" spellcheck="false" /></label>
+          <select id="modsSort" class="select"><option value="relevance">Relevance</option><option value="downloads">Downloads</option><option value="follows">Followers</option><option value="updated">Recently updated</option><option value="newest">Newest</option></select>
+        </div>
+        <div class="results" id="modsResults"></div>
+        <div class="more"><button class="btn ghost" id="modsMore" hidden>Load more</button></div>
+      </div>
+    </section>
+
+    <!-- ================= RESOURCE PACKS ================= -->
+    <section class="page" id="page-packs">
+      <div class="page-head">
+        <div><p class="eyebrow">CONTENT</p><h2>Resource Packs</h2><p class="muted">Packs land in this instance and can be enabled in Minecraft's options.</p></div>
+        <div class="head-tools"><div class="instance-chip" data-instance-chip></div></div>
+      </div>
+      <div class="tabs" data-tabs="packs">
+        <button class="tab active" data-tab="installed">Installed <span class="count" id="packsCount">0</span></button>
+        <button class="tab" data-tab="discover">Discover</button>
+      </div>
+      <div class="tab-panel active" data-panel="packs-installed">
+        <div class="toolbar"><span class="grow"></span><button class="btn ghost" id="packsFolder"><svg><use href="#i-folder"/></svg>Open folder</button></div>
+        <div class="list" id="packsList"></div>
+      </div>
+      <div class="tab-panel" data-panel="packs-discover">
+        <div class="toolbar">
+          <label class="search grow"><svg><use href="#i-search"/></svg><input id="packsQuery" placeholder="Search Modrinth, e.g. faithful, fresh animations" autocomplete="off" spellcheck="false" /></label>
+          <select id="packsSort" class="select"><option value="relevance">Relevance</option><option value="downloads">Downloads</option><option value="follows">Followers</option><option value="updated">Recently updated</option></select>
+        </div>
+        <div class="results" id="packsResults"></div>
+        <div class="more"><button class="btn ghost" id="packsMore" hidden>Load more</button></div>
+      </div>
+    </section>
+
+    <!-- ================= SHADERS ================= -->
+    <section class="page" id="page-shaders">
+      <div class="page-head">
+        <div><p class="eyebrow">CONTENT</p><h2>Shaders</h2><p class="muted">Shader packs need the Iris mod. Enable them in Minecraft under Options → Video Settings → Shader Packs.</p></div>
+        <div class="head-tools"><div class="instance-chip" data-instance-chip></div></div>
+      </div>
+      <div class="iris-card" id="irisCard"></div>
+      <div class="tabs" data-tabs="shaders">
+        <button class="tab active" data-tab="installed">Installed <span class="count" id="shadersCount">0</span></button>
+        <button class="tab" data-tab="discover">Discover</button>
+      </div>
+      <div class="tab-panel active" data-panel="shaders-installed">
+        <div class="toolbar"><span class="grow"></span><button class="btn ghost" id="shadersFolder"><svg><use href="#i-folder"/></svg>Open folder</button></div>
+        <div class="list" id="shadersList"></div>
+      </div>
+      <div class="tab-panel" data-panel="shaders-discover">
+        <div class="toolbar">
+          <label class="search grow"><svg><use href="#i-search"/></svg><input id="shadersQuery" placeholder="Search Modrinth, e.g. complementary, bsl" autocomplete="off" spellcheck="false" /></label>
+          <select id="shadersSort" class="select"><option value="relevance">Relevance</option><option value="downloads">Downloads</option><option value="follows">Followers</option><option value="updated">Recently updated</option></select>
+        </div>
+        <div class="results" id="shadersResults"></div>
+        <div class="more"><button class="btn ghost" id="shadersMore" hidden>Load more</button></div>
+      </div>
+    </section>
+
+    <!-- ================= WORLDS ================= -->
+    <section class="page" id="page-worlds">
+      <div class="page-head">
+        <div><p class="eyebrow">CONTENT</p><h2>Worlds</h2><p class="muted">Your singleplayer worlds with backups. Backups are full copies you can restore at any time.</p></div>
+        <div class="head-tools">
+          <div class="instance-chip" data-instance-chip></div>
+        </div>
+      </div>
+      <div class="toolbar">
+        <span class="muted small" id="worldsSummary"></span>
+        <span class="grow"></span>
+        <button class="btn ghost" id="worldsBackupAll"><svg><use href="#i-save"/></svg>Back up all</button>
+        <button class="btn ghost" id="worldsBackups"><svg><use href="#i-history"/></svg>Backup folder</button>
+        <button class="icon-btn" id="worldsFolder" title="Open saves folder"><svg><use href="#i-folder"/></svg></button>
+      </div>
+      <div class="world-list" id="worldList"></div>
+    </section>
+
+    <!-- ================= SCREENSHOTS ================= -->
+    <section class="page" id="page-shots">
+      <div class="page-head">
+        <div><p class="eyebrow">CONTENT</p><h2>Screenshots</h2><p class="muted">Press F2 in Minecraft to take a screenshot.</p></div>
+        <div class="head-tools">
+          <div class="instance-chip" data-instance-chip></div>
+          <button class="icon-btn" id="shotsFolder" title="Open folder"><svg><use href="#i-folder"/></svg></button>
+        </div>
+      </div>
+      <div class="shot-grid" id="shotGrid"></div>
+    </section>
+
+    <!-- ================= SERVERS ================= -->
+    <section class="page" id="page-servers">
+      <div class="page-head">
+        <div><p class="eyebrow">MULTIPLAYER</p><h2>Servers</h2><p class="muted">Live status for your servers. Join starts Minecraft and connects directly.</p></div>
+        <div class="head-tools"><button class="btn ghost" id="serversRefresh"><svg><use href="#i-refresh"/></svg>Refresh</button></div>
+      </div>
+      <form class="add-server" id="addServerForm">
+        <input id="serverName" placeholder="Name" maxlength="42" autocomplete="off" />
+        <input id="serverAddress" placeholder="Address, e.g. play.example.com" maxlength="253" autocomplete="off" spellcheck="false" />
+        <button class="btn" type="submit"><svg><use href="#i-plus"/></svg>Add server</button>
+      </form>
+      <div class="server-list" id="serverList"></div>
+    </section>
+
+    <!-- ================= SKINS ================= -->
+    <section class="page" id="page-skins">
+      <div class="page-head">
+        <div><p class="eyebrow">PROFILE</p><h2>Skins</h2><p class="muted">Change your real Minecraft skin and cape. Everyone on every server sees it.</p></div>
+        <div class="head-tools">
+          <button class="btn ghost" id="skinsFolder" title="Open skin folder"><svg><use href="#i-folder"/></svg>Folder</button>
+        </div>
+      </div>
+      <div class="skins-layout">
+        <section class="card skin-stage">
+          <div class="stage-top"><div><strong id="skinName">—</strong><span class="muted small" id="skinState">Current skin</span></div>
+            <div class="segmented small" id="skinAnim"><button data-value="idle" class="active">Idle</button><button data-value="walk">Walk</button><button data-value="run">Run</button></div>
+          </div>
+          <div class="stage-canvas" id="skinStage"><canvas id="skinCanvas"></canvas><div class="stage-empty" id="skinStageEmpty" hidden></div></div>
+          <div class="stage-actions" id="skinStageActions"></div>
+          <div class="capes" id="capeList"></div>
+        </section>
+        <section class="skin-lib">
+          <div class="toolbar">
+            <button class="btn" id="skinAdd"><svg><use href="#i-plus"/></svg>Add PNG</button>
+            <form class="inline-form" id="skinPlayerForm">
+              <input id="skinPlayer" placeholder="Copy a player's skin (name)" maxlength="16" autocomplete="off" spellcheck="false" />
+              <button class="btn ghost" type="submit"><svg><use href="#i-download"/></svg>Copy</button>
+            </form>
+            <span class="grow"></span>
+            <button class="btn ghost" id="skinSaveCurrent"><svg><use href="#i-save"/></svg>Save current</button>
+          </div>
+          <div class="skin-grid" id="skinGrid"></div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ================= SETTINGS ================= -->
+    <section class="page" id="page-settings">
+      <div class="page-head"><div><p class="eyebrow">LAUNCHER</p><h2>Settings</h2><p class="muted">Changes are saved immediately.</p></div></div>
+      <div class="settings">
+        <section class="card set-card">
+          <h3><svg><use href="#i-memory"/></svg>Game</h3>
+          <div class="set-row">
+            <div><strong>Memory (RAM)</strong><p>How much memory Minecraft may use. 4-6 GB is plenty for Vortex; more does not make it faster.</p></div>
+            <div class="set-ctl ram"><input type="range" id="setRam" min="1024" max="8192" step="256" /><output id="setRamOut">4 GB</output></div>
+          </div>
+          <div class="set-row">
+            <div><strong>Window size</strong><p>Size of the game window at start.</p></div>
+            <div class="set-ctl res"><input id="setWidth" inputmode="numeric" maxlength="4" /><span>×</span><input id="setHeight" inputmode="numeric" maxlength="4" /></div>
+          </div>
+          <div class="set-row">
+            <div><strong>Start in fullscreen</strong><p>Overrides the window size.</p></div>
+            <label class="switch"><input type="checkbox" id="setFullscreen" /><i></i></label>
+          </div>
+          <div class="set-row">
+            <div><strong>Extra JVM arguments</strong><p>For experts. Memory is set above, not here.</p></div>
+            <div class="set-ctl wide"><input id="setJvm" placeholder="e.g. -XX:+UseZGC" spellcheck="false" /></div>
+          </div>
+        </section>
+
+        <section class="card set-card">
+          <h3><svg><use href="#i-coffee"/></svg>Java</h3>
+          <div class="set-row">
+            <div><strong>Java runtime</strong><p id="javaInfo">Automatic: the right Java is downloaded when needed.</p></div>
+            <div class="set-ctl btns"><button class="btn ghost" id="javaPick">Choose java.exe</button><button class="btn ghost" id="javaAuto">Automatic</button></div>
+          </div>
+        </section>
+
+        <section class="card set-card">
+          <h3><svg><use href="#i-bolt"/></svg>Vortex</h3>
+          <div class="set-row">
+            <div><strong>Load Vortex Plus Addon</strong><p>Adds the addon modules (bots, cheats) to Vortex versions. Many servers forbid such modules — using them can get you banned.</p></div>
+            <label class="switch"><input type="checkbox" id="setAddon" /><i></i></label>
+          </div>
+          <div class="set-row">
+            <div><strong>Vortex updates</strong><p id="vortexFilesInfo">New Vortex Client and addon versions are downloaded automatically.</p></div>
+            <div class="set-ctl btns"><button class="btn ghost" id="vortexRefresh"><svg><use href="#i-refresh"/></svg>Check now</button></div>
+          </div>
+        </section>
+
+        <section class="card set-card">
+          <h3><svg><use href="#i-save"/></svg>Mods &amp; worlds</h3>
+          <div class="set-row">
+            <div><strong>Update mods automatically</strong><p>Installs Modrinth updates for your mods every time you press Play.</p></div>
+            <label class="switch"><input type="checkbox" id="setAutoUpdate" /><i></i></label>
+          </div>
+          <div class="set-row">
+            <div><strong>Back up worlds before updates</strong><p>When Vortex or your mods changed since the last start, your worlds are copied first. The last 5 automatic backups per world are kept.</p></div>
+            <label class="switch"><input type="checkbox" id="setAutoBackup" /><i></i></label>
+          </div>
+        </section>
+
+        <section class="card set-card">
+          <h3><svg><use href="#i-sliders"/></svg>Launcher</h3>
+          <div class="set-row">
+            <div><strong>Language</strong><p>Language of the launcher.</p></div>
+            <div class="segmented" id="setLanguage"><button data-value="auto">Automatic</button><button data-value="de">Deutsch</button><button data-value="en">English</button></div>
+          </div>
+          <div class="set-row">
+            <div><strong>When Minecraft starts</strong><p>What the launcher does while you play. It comes back when the game closes.</p></div>
+            <div class="segmented" id="setAfter">
+              <button data-value="keep">Stay open</button><button data-value="minimize">Minimize</button><button data-value="hide">Hide</button>
+            </div>
+          </div>
+          <div class="set-row">
+            <div><strong>Show in Discord</strong><p id="discordInfo">Shows "Playing Vortex Client" in your Discord status.</p></div>
+            <label class="switch"><input type="checkbox" id="setDiscord" /><i></i></label>
+          </div>
+          <div class="set-row">
+            <div><strong>Open the crash analysis after a crash</strong><p>Explains what went wrong right away.</p></div>
+            <label class="switch"><input type="checkbox" id="setConsoleCrash" /><i></i></label>
+          </div>
+          <div class="set-row">
+            <div><strong>Files</strong><p id="dataPath">Launcher data</p></div>
+            <div class="set-ctl btns"><button class="btn ghost" id="openData"><svg><use href="#i-folder"/></svg>Data folder</button><button class="btn ghost" id="openLog"><svg><use href="#i-terminal"/></svg>Launch log</button></div>
+          </div>
+        </section>
+
+        <section class="card set-card">
+          <h3><svg><use href="#i-download"/></svg>Updates</h3>
+          <div class="set-row">
+            <div><strong id="updTitle">Vortex Client Launcher</strong><p id="updText">—</p><div class="upd-bar" id="updBar" hidden><i></i></div></div>
+            <div class="set-ctl btns"><button class="btn" id="updBtn">Check for updates</button></div>
+          </div>
+          <div class="set-row">
+            <div><strong>Vortex website</strong><p>Community presets, accounts and news.</p></div>
+            <div class="set-ctl btns"><button class="btn ghost" id="websiteBtn"><svg><use href="#i-globe"/></svg>Open website</button></div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ================= ADMIN ================= -->
+    <section class="page" id="page-admin">
+      <div class="page-head">
+        <div><p class="eyebrow">OWNER</p><h2>Admin</h2><p class="muted">Publish new Vortex Client and addon versions. Every launcher downloads them automatically — no new launcher build needed.</p></div>
+        <div class="head-tools" id="adminHeadTools"></div>
+      </div>
+      <div id="adminBody"></div>
+    </section>
+  </main>
+
+  <!-- Konsole -->
+  <section class="console" id="console" aria-hidden="true">
+    <div class="console-head">
+      <strong><svg><use href="#i-terminal"/></svg>Console</strong>
+      <div class="segmented small" id="consoleFilter"><button data-value="all" class="active">All</button><button data-value="game">Game</button><button data-value="error">Errors</button></div>
+      <span class="grow"></span>
+      <button class="icon-btn" id="consoleCopy" title="Copy"><svg><use href="#i-copy"/></svg></button>
+      <button class="icon-btn" id="consoleClear" title="Clear"><svg><use href="#i-trash"/></svg></button>
+      <button class="icon-btn" id="consoleFile" title="Open log file"><svg><use href="#i-external"/></svg></button>
+      <button class="icon-btn" id="consoleClose" title="Close"><svg><use href="#i-x"/></svg></button>
+    </div>
+    <div class="console-body" id="consoleBody"></div>
+  </section>
+
+  <div class="drop-overlay" id="dropOverlay" hidden><div><svg><use href="#i-upload"/></svg><strong id="dropTitle">Drop to add</strong><span id="dropText"></span></div></div>
+  <div class="lightbox" id="lightbox" hidden></div>
+  <div class="toasts" id="toasts"></div>
+  <div class="modal-root" id="modalRoot" hidden></div>
+</div>
+
+<script src="../shared/i18n.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

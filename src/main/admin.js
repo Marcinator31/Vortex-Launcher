@@ -118,8 +118,10 @@ async function release() {
   }
 }
 
-async function readRemoteManifest(rel) {
-  const asset = (rel.assets || []).find(a => a.name === 'manifest.json');
+const BETA = 'manifest-beta.json';
+
+async function readRemoteManifest(rel, name = 'manifest.json') {
+  const asset = (rel.assets || []).find(a => a.name === name);
   if (!asset) return { schema: 1, versions: {}, news: [] };
   const buf = await gh('GET', `/repos/${REPO}/releases/assets/${asset.id}`, { accept: 'application/octet-stream' });
   try { return vortexfiles.validManifest(JSON.parse(buf.toString('utf8'))); } catch (_) { return { schema: 1, versions: {}, news: [] }; }
@@ -138,26 +140,71 @@ async function deleteAssetByName(name) {
   if (a) await gh('DELETE', `/repos/${REPO}/releases/assets/${a.id}`);
 }
 
-async function writeManifest(rel, manifest) {
+async function writeManifest(rel, manifest, name = 'manifest.json') {
   manifest.updatedAt = new Date().toISOString();
-  await uploadAsset(rel, 'manifest.json', Buffer.from(JSON.stringify(manifest, null, 2)), 'application/json');
+  await uploadAsset(rel, name, Buffer.from(JSON.stringify(manifest, null, 2)), 'application/json');
+}
+
+/** Wird die Datei noch von einem der beiden Manifeste gebraucht? Dann NICHT loeschen. */
+async function stillUsed(fileName) {
+  const rel = await release();
+  for (const m of [await readRemoteManifest(rel), await readRemoteManifest(rel, BETA)]) {
+    for (const e of Object.values(m.versions)) {
+      for (const f of Object.values(e.files)) if (f.file === fileName) return true;
+    }
+  }
+  return false;
+}
+
+async function deleteIfUnused(fileName) {
+  if (!fileName || await stillUsed(fileName)) return;
+  await deleteAssetByName(fileName);
+}
+
+/**
+ * Beta fuer alle freigeben: den Beta-Eintrag (Datei liegt schon im Release)
+ * ins normale Manifest uebernehmen. Die Datei wird nicht neu hochgeladen.
+ */
+async function promote(mcVersion, id) {
+  const rel = await release();
+  const beta = await readRemoteManifest(rel, BETA);
+  const f = beta.versions[mcVersion]?.files?.[id];
+  if (!f) throw new Error('There is no beta version to release.');
+  const stable = await readRemoteManifest(rel);
+  const entry = stable.versions[mcVersion] || (stable.versions[mcVersion] = { files: {} });
+  const previous = entry.files[id];
+  entry.files[id] = { ...f, channel: 'stable', uploadedAt: new Date().toISOString() };
+  delete entry.files[id].channel;
+  await writeManifest(rel, stable);
+  if (previous && previous.file !== f.file) {
+    try { await deleteIfUnused(previous.file); } catch (e) { log(`Admin: old file ${previous.file} could not be removed: ${e.message}`, 'warn'); }
+  }
+  log(`Admin: ${f.name} ${vortexfiles.cleanVersion(f.version)} released to everyone (Minecraft ${mcVersion}).`);
+  return { released: { version: mcVersion, id, name: f.name, newVersion: vortexfiles.cleanVersion(f.version) } };
 }
 
 /** Uebersicht fuer den Admin-Bereich (direkt von GitHub, nicht aus dem Cache). */
 async function overview(packaged) {
   const rel = await release();
   const manifest = await readRemoteManifest(rel);
-  const versions = [...new Set([...Object.keys(packaged), ...Object.keys(manifest.versions)])];
+  const beta = await readRemoteManifest(rel, BETA);
+  const versions = [...new Set([...Object.keys(packaged), ...Object.keys(manifest.versions), ...Object.keys(beta.versions)])];
   return {
     versions: versions.map(v => {
       const online = manifest.versions[v]?.files || {};
-      const ids = [...new Set([...(packaged[v] || []).map(e => e.id), ...Object.keys(online)])];
+      const betaFiles = beta.versions[v]?.files || {};
+      const ids = [...new Set([...(packaged[v] || []).map(e => e.id), ...Object.keys(online), ...Object.keys(betaFiles)])];
       return {
         version: v,
         files: ids.map(id => {
           const b = (packaged[v] || []).find(e => e.id === id);
           const o = online[id];
+          const bt = betaFiles[id];
+          const betaNewer = bt && (!o || vortexfiles.isNewer(bt.version, o.version) || (vortexfiles.cleanVersion(bt.version) === vortexfiles.cleanVersion(o.version) && bt.sha256 !== o.sha256));
           return {
+            beta: bt ? vortexfiles.cleanVersion(bt.version) : null,
+            betaNotes: bt?.notes || '',
+            promotable: Boolean(betaNewer),
             id, kind: vortexfiles.kindOf(id),
             name: o?.name || b?.name || id,
             bundled: b ? vortexfiles.cleanVersion(b.version) : null,
@@ -219,7 +266,7 @@ async function publish(file, mcVersion) {
   entry.files[info.id] = { file: info.file, version: info.version, name: info.name, sha256, size: data.length, uploadedAt: new Date().toISOString() };
   await writeManifest(await release(), manifest);
   if (previous && previous.file !== info.file) {
-    try { await deleteAssetByName(previous.file); } catch (e) { log(`Admin: old file ${previous.file} could not be removed: ${e.message}`, 'warn'); }
+    try { await deleteIfUnused(previous.file); } catch (e) { log(`Admin: old file ${previous.file} could not be removed: ${e.message}`, 'warn'); }
   }
   log(`Admin: ${info.name} ${info.cleanVersion} published for Minecraft ${v}.`);
   return { published: { version: v, id: info.id, name: info.name, newVersion: info.cleanVersion } };
@@ -234,7 +281,7 @@ async function unpublish(mcVersion, id) {
   delete manifest.versions[mcVersion].files[id];
   if (!Object.keys(manifest.versions[mcVersion].files).length) delete manifest.versions[mcVersion];
   await writeManifest(rel, manifest);
-  try { await deleteAssetByName(f.file); } catch (_) {}
+  try { await deleteIfUnused(f.file); } catch (_) {}
   log(`Admin: ${f.name} removed from Minecraft ${mcVersion}.`);
   return {};
 }
@@ -258,4 +305,4 @@ async function deleteNews(id) {
   return { news: manifest.news };
 }
 
-module.exports = { status, signIn, signOut, overview, inspectJar, publish, unpublish, postNews, deleteNews, hasToken: () => Boolean(readToken()) };
+module.exports = { status, signIn, signOut, overview, inspectJar, publish, unpublish, promote, postNews, deleteNews, hasToken: () => Boolean(readToken()) };

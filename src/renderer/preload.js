@@ -115,6 +115,7 @@ contextBridge.exposeInMainWorld('vortex', {
     inspect: paths => call('admin:inspect', paths),
     publish: (file, version) => call('admin:publish', file, version),
     unpublish: (version, id) => call('admin:unpublish', version, id),
+    promote: (version, id) => call('admin:promote', version, id),
     postNews: (title, body) => call('admin:postNews', title, body),
     deleteNews: id => call('admin:deleteNews', id)
   },
@@ -137,6 +138,7 @@ contextBridge.exposeInMainWorld('vortex', {
     crash: on('crash'),
     accounts: on('accounts'),
     versions: on('versions'),
-    update: on('update-state')
+    update: on('update-state'),
+    whatsnew: on('whatsnew')
   }
 });

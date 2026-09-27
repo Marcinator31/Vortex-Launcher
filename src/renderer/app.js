@@ -318,6 +318,7 @@
     S.account = r.account || null;
     S.accounts = r.accounts || [];
     if (typeof r.adminVisible === 'boolean') { S.adminVisible = r.adminVisible; $('#navAdmin').hidden = !S.adminVisible && S.page !== 'admin'; }
+    if (typeof r.betaAllowed === 'boolean') S.betaAllowed = r.betaAllowed;
     renderAccount();
     renderHome();
     if (S.page === 'skins' && before !== S.account?.id) enterSkins();
@@ -1482,6 +1483,8 @@
     $('#setWidth').disabled = $('#setHeight').disabled = Boolean(c.fullscreen);
     $('#setJvm').value = c.jvmArgs || '';
     $('#setAddon').checked = c.includeAddon !== false;
+    $('#setBetaRow').hidden = !(S.betaAllowed || S.adminVisible);
+    $('#setBeta').checked = Boolean(c.betaChannel);
     $('#setConsoleCrash').checked = c.showConsoleOnCrash !== false;
     $('#setAutoBackup').checked = c.autoBackup !== false;
     $('#setAutoUpdate').checked = Boolean(c.autoUpdateMods);
@@ -1517,6 +1520,12 @@
     if (await saveSettings({ includeAddon: on })) {
       toast('success', on ? t('Vortex Plus Addon is loaded from the next start.') : t('Vortex Plus Addon switched off.'));
       refreshVersions();
+    }
+  };
+  $('#setBeta').onchange = async e => {
+    const on = e.target.checked;
+    if (await saveSettings({ betaChannel: on })) {
+      toast('success', on ? t('Beta updates on — new builds are downloaded now.') : t('Beta updates off — back to the released version.'));
     }
   };
   $('#setAfter').onclick = e => {
@@ -1671,13 +1680,14 @@
         ${(ov?.versions || []).map(v => `
           <section class="card av-card">
             <div class="av-head"><strong>Minecraft ${esc(v.version)}</strong><span class="grow"></span></div>
-            <div class="av-row head"><span>${esc(t('FILE'))}</span><span>${esc(t('IN LAUNCHER'))}</span><span>${esc(t('ONLINE'))}</span><span>${esc(t('UPLOADED'))}</span><span></span></div>
+            <div class="av-row head"><span>${esc(t('FILE'))}</span><span>${esc(t('IN LAUNCHER'))}</span><span>${esc(t('ONLINE'))}</span><span>${esc(t('BETA'))}</span><span>${esc(t('UPLOADED'))}</span><span></span></div>
             ${v.files.map(f => `
               <div class="av-row"><span class="nm"><span class="src ${f.kind === 'client' ? 'vortex' : f.kind === 'addon' ? 'addon' : 'bundled'}">${esc(f.kind.toUpperCase())}</span><strong>${esc(f.name)}</strong></span>
                 <span>${esc(f.bundled || '—')}</span>
                 <span>${f.online ? `<b style="color:${f.active === 'online' ? 'var(--ok)' : 'var(--dim)'}">${esc(f.online)}</b>` : '—'}</span>
+                <span>${f.beta ? `<b style="color:${f.promotable ? 'var(--warn)' : 'var(--dim)'}" title="${esc(f.betaNotes || '')}">${esc(f.beta)}</b>` : '—'}</span>
                 <span class="muted">${esc(f.uploadedAt ? fmtDate(f.uploadedAt) : '—')}</span>
-                <span>${f.online ? `<button class="btn small ghost" data-unpub="${esc(v.version)}|${esc(f.id)}">${esc(t('Remove online'))}</button>` : ''}</span>
+                <span class="row-btns">${f.promotable ? `<button class="btn small" data-promote="${esc(v.version)}|${esc(f.id)}">${esc(t('Release to everyone'))}</button>` : ''}${f.online ? `<button class="btn small ghost" data-unpub="${esc(v.version)}|${esc(f.id)}">${esc(t('Remove online'))}</button>` : ''}</span>
               </div>`).join('')}
           </section>`).join('')}
         <section class="card">
@@ -1719,6 +1729,14 @@
   }
 
   async function adminClicks(e) {
+    const pr = e.target.closest('[data-promote]');
+    if (pr) {
+      const [v, id] = pr.dataset.promote.split('|');
+      const f = S.admin.overview?.versions?.find(x => x.version === v)?.files?.find(x => x.id === id);
+      if (!(await confirmDialog({ title: t('Release {0} {1} to everyone?', f?.name || id, f?.beta || ''), text: t('All players get this version at their next start.'), ok: t('Release') }))) return;
+      await busy(pr, async () => { await call(api.admin.promote(v, id)); toast('success', t('Released to everyone.')); await loadAdmin(); });
+      return;
+    }
     const un = e.target.closest('[data-unpub]');
     if (un) {
       const [v, id] = un.dataset.unpub.split('|');
@@ -1829,6 +1847,18 @@
   // Ereignisse aus dem Hauptprozess
   // -----------------------------------------------------------------------
   api.on.log(addLines);
+  // "Was ist neu": nach einem Client-/Addon-Update einmal zeigen, was sich geaendert hat.
+  api.on.whatsnew(list => {
+    if (!Array.isArray(list) || !list.length) return;
+    const noteLines = n => String(n || '').split(/\r?\n/).map(l => l.replace(/^\s*[-*+]\s+/, '').trim()).filter(Boolean).slice(0, 12);
+    const items = list.map(u => {
+      const lines = noteLines(u.notes);
+      return `<div class="wn-item"><div class="wn-head"><strong>${esc(u.name)} ${esc(u.newVersion)}</strong>${u.channel === 'beta' ? '<span class="src addon">BETA</span>' : ''}<span class="muted small">Minecraft ${esc(u.version)}</span></div>
+        ${lines.length ? `<ul>${lines.map(l => `<li>${esc(l)}</li>`).join('')}</ul>` : `<p class="muted">${esc(t('No notes for this update.'))}</p>`}</div>`;
+    }).join('');
+    const { el, close } = openModal(`<h3>${icon('news')}${esc(t('What’s new in Vortex'))}</h3><div class="wn-list">${items}</div><div class="row-btns"><button class="btn" data-ok>${esc(t('Got it'))}</button></div>`, { wide: true });
+    $('[data-ok]', el).onclick = close;
+  });
   api.on.notify(n => { if (n) toast(n.type === 'error' ? 'error' : n.type === 'success' ? 'success' : 'info', tr(n.message)); });
   api.on.progress(p => {
     S.progress = p || { stage: 'idle' };
@@ -1883,7 +1913,7 @@
       Object.assign(S, {
         appVersion: st.appVersion, settings: st.settings, system: st.system, account: st.account, accounts: st.accounts || [],
         versions: st.versions || [], servers: st.servers || [], sessions: st.sessions || [], update: st.update || S.update,
-        dataRoot: st.dataRoot, website: st.website, adminVisible: st.adminVisible, discordAvailable: st.discordAvailable,
+        dataRoot: st.dataRoot, website: st.website, adminVisible: st.adminVisible, betaAllowed: Boolean(st.betaAllowed), discordAvailable: st.discordAvailable,
         lastCrash: st.lastCrash || null
       });
       if (st.launching) S.progress = { stage: 'prepare', label: 'Starting Minecraft…', percent: null };

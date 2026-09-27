@@ -40,7 +40,12 @@ async function get() {
   const uploads = [];
   for (const [v, e] of Object.entries(m.versions)) {
     for (const f of Object.values(e.files)) {
-      if (f.uploadedAt) uploads.push({ kind: 'update', title: `${f.name} ${vortexfiles.cleanVersion(f.version)}`, lines: [`Available for Minecraft ${v}.`], date: f.uploadedAt, v });
+      if (!f.uploadedAt) continue;
+      const notes = textLines(f.notes);
+      uploads.push({
+        kind: 'update', title: `${f.name} ${vortexfiles.cleanVersion(f.version)}${f.channel === 'beta' ? ' (Beta)' : ''}`,
+        lines: [...notes, `Available for Minecraft ${v}.`].slice(0, 6), date: f.uploadedAt, v
+      });
     }
   }
   uploads.sort((a, b) => String(b.date).localeCompare(String(a.date)) || compareVersions(b.v, a.v));

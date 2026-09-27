@@ -107,10 +107,20 @@ function adminVisible() {
   return admin.hasToken() || Boolean(acc && (names.includes(acc.username.toLowerCase()) || names.includes(String(acc.uuid).toLowerCase())));
 }
 
+/** Darf dieses Konto den Beta-Kanal benutzen? Admins und eingetragene Tester. */
+function betaAllowed() {
+  if (adminVisible()) return true;
+  const acc = accounts.currentSummary();
+  const testers = (config.betaTesters || []).map(n => String(n).toLowerCase());
+  return Boolean(acc && testers.includes(String(acc.username).toLowerCase()));
+}
+vortexfiles.setBetaCheck(() => settings.get().betaChannel && betaAllowed());
+
 /** Vortex-Dateien aus dem Admin-Bereich holen und die Oberflaeche informieren. */
 async function refreshVortexFiles(quiet = true) {
   const r = await vortexfiles.refresh(v => instances.packagedEntries(v));
   for (const u of r.updated) notify('success', `${u.name} ${u.newVersion} for Minecraft ${u.version} downloaded.`);
+  if (r.updated.length) core.send('whatsnew', r.updated);
   if (r.updated.length) {
     for (const v of new Set(r.updated.map(u => u.version))) {
       try { if (core.exists(paths.instanceRoot(v))) instances.syncBundled(v); } catch (_) {}
@@ -134,6 +144,7 @@ function fullState() {
     update: updater.get(),
     dataRoot: paths.dataRoot,
     adminVisible: adminVisible(),
+    betaAllowed: betaAllowed(),
     discordAvailable: discord.available(),
     website: config.website,
     lastCrash: launch.lastCrash()
@@ -152,7 +163,7 @@ function registerIpc() {
   handle('state', () => fullState());
 
   // Konten
-  const accountState = () => ({ account: accounts.currentSummary(), accounts: accounts.list(), adminVisible: adminVisible() });
+  const accountState = () => ({ account: accounts.currentSummary(), accounts: accounts.list(), adminVisible: adminVisible(), betaAllowed: betaAllowed() });
   handle('account:login', async () => { await accounts.login(); return accountState(); });
   handle('account:select', id => { accounts.select(id); return accountState(); });
   handle('account:remove', id => { accounts.remove(id); return accountState(); });
@@ -213,6 +224,14 @@ function registerIpc() {
       for (const v of instances.bundledVersions()) {
         try { if (core.exists(paths.instanceRoot(v))) instances.syncBundled(v); } catch (_) {}
       }
+    }
+    // Beta an/aus: Manifest neu holen -- aus wird wieder die freigegebene Version.
+    if (before.betaChannel !== next.betaChannel) {
+      void refreshVortexFiles(false).then(() => {
+        for (const v of instances.bundledVersions()) {
+          try { if (core.exists(paths.instanceRoot(v))) instances.syncBundled(v); } catch (_) {}
+        }
+      }).catch(() => {});
     }
     if (before.discord !== next.discord) {
       const run = launch.sessionList()[0];
@@ -277,6 +296,7 @@ function registerIpc() {
   handle('admin:inspect', paths_ => ({ jars: (Array.isArray(paths_) ? paths_ : []).slice(0, 20).map(f => { try { return admin.inspectJar(f); } catch (e) { return { path: f, file: path.basename(String(f)), error: e.message }; } }) }));
   handle('admin:publish', async (file, version) => { const r = await admin.publish(file, version); void refreshVortexFiles(false); return r; });
   handle('admin:unpublish', async (version, id) => { await admin.unpublish(version, id); void refreshVortexFiles(false); return {}; });
+  handle('admin:promote', async (version, id) => { const r = await admin.promote(version, id); void refreshVortexFiles(false); return r; });
   handle('admin:postNews', (title, body) => admin.postNews(title, body));
   handle('admin:deleteNews', id => admin.deleteNews(id));
 

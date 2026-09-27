@@ -92,6 +92,7 @@ async function start({ version, serverId = null }) {
       progress('prepare', 'Checking for Vortex updates', null);
       const r = await Promise.race([vortexfiles.refresh(ver => instances.packagedEntries(ver), { versionsOnly: [v] }), sleep(30000).then(() => null)]);
       for (const u of r?.updated || []) notify('success', `${u.name} ${u.newVersion} for Minecraft ${u.version} downloaded.`);
+      if (r?.updated?.length) require('./core').send('whatsnew', r.updated);
     }
 
     progress('prepare', `Preparing Minecraft ${v}`, null);

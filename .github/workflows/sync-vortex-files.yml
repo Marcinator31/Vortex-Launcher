@@ -2,19 +2,27 @@ name: Client und Addon automatisch veroeffentlichen
 
 # Holt die neuesten Jars aus Vortex-Client und Vortex-Addon-v2 und legt sie
 # in das Release "vortex-files" -- wie der Admin-Bereich, nur ohne dich.
-# Jeder Launcher laedt sie beim naechsten Start (bzw. beim naechsten Pruefen).
+#
+# BETA-KANAL: neue Builds gehen zuerst an die Beta (Admins/Tester mit
+# "Beta-Updates" in den Einstellungen). Fuer alle freigeben:
+#   - im Launcher: Admin -> "Fuer alle freigeben"
+#   - oder hier: Run workflow -> "Beta fuer alle freigeben" anhaken
 #
 #   - alle 15 Minuten (GitHub startet geplante Laeufe manchmal etwas spaeter)
-#   - sofort: Actions -> "Client und Addon automatisch veroeffentlichen" -> Run workflow
+#   - sofort: Actions -> dieser Workflow -> Run workflow
 #
 # Das Addon-Repo ist privat: dafuer braucht dieses Repo das Secret
 # ADDON_TOKEN (Token mit "Contents: Read-only" fuer Vortex-Addon-v2).
-# Fehlt es, wird nur der Client abgeglichen.
 
 on:
   schedule:
     - cron: '*/15 * * * *'
   workflow_dispatch:
+    inputs:
+      promote:
+        description: 'Beta fuer alle freigeben'
+        type: boolean
+        default: false
   repository_dispatch:
     types: [ vortex-files ]
 
@@ -36,4 +44,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ADDON_TOKEN: ${{ secrets.ADDON_TOKEN }}
+          CHANNEL: beta
+          PROMOTE: ${{ inputs.promote || 'false' }}
         run: python3 .github/scripts/sync_vortex_files.py

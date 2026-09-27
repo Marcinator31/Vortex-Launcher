@@ -35,6 +35,36 @@ const safeName = n => /^[A-Za-z0-9][A-Za-z0-9._+-]{0,150}\.jar$/.test(String(n |
 
 let lastCheck = { at: 0, ok: null, error: null };
 
+/**
+ * Beta-Kanal: neue Builds landen zuerst in manifest-beta.json. Nur wer Beta
+ * eingeschaltet hat (und darf -- Admins/Tester, siehe main.js), bekommt sie.
+ * Alle anderen erst, wenn der Besitzer sie in manifest.json freigibt.
+ */
+let betaCheck = () => false;
+function setBetaCheck(fn) { betaCheck = typeof fn === 'function' ? fn : () => false; }
+
+async function fetchManifest(name) {
+  const res = await fetch(`${baseUrl()}/${name}`, { signal: AbortSignal.timeout(10000), headers: { 'User-Agent': 'VortexClientLauncher', 'Cache-Control': 'no-cache' } });
+  if (res.status === 404) return { schema: 1, versions: {}, news: [] };      // noch nichts hochgeladen
+  if (!res.ok) throw new Error(`${name} answered ${res.status}`);
+  return validManifest(await res.json());
+}
+
+/** Stabil + Beta zusammenlegen: pro Version und Mod-ID gewinnt die neuere Datei. */
+function mergeBeta(stable, beta) {
+  const out = JSON.parse(JSON.stringify(stable));
+  for (const [v, e] of Object.entries(beta.versions || {})) {
+    const target = out.versions[v] || (out.versions[v] = { files: {} });
+    for (const [id, f] of Object.entries(e.files)) {
+      const cur = target.files[id];
+      if (!cur || isNewer(f.version, cur.version) || (cleanVersion(f.version) === cleanVersion(cur.version) && f.sha256 !== cur.sha256)) {
+        target.files[id] = { ...f, channel: 'beta' };
+      }
+    }
+  }
+  return out;
+}
+
 function validManifest(m) {
   if (!m || typeof m !== 'object' || typeof m.versions !== 'object') return { schema: 1, versions: {}, news: [] };
   const out = { schema: 1, updatedAt: String(m.updatedAt || ''), versions: {} };
@@ -45,7 +75,9 @@ function validManifest(m) {
       if (!/^[a-z0-9_-]{1,64}$/i.test(id) || !f || !safeName(f.file) || !/^[a-f0-9]{64}$/i.test(String(f.sha256 || ''))) continue;
       files[id] = {
         file: f.file, version: String(f.version || ''), name: String(f.name || id).slice(0, 80),
-        sha256: String(f.sha256).toLowerCase(), size: Number(f.size) || 0, uploadedAt: String(f.uploadedAt || '')
+        sha256: String(f.sha256).toLowerCase(), size: Number(f.size) || 0, uploadedAt: String(f.uploadedAt || ''),
+        notes: String(f.notes || '').slice(0, 2000),
+        channel: f.channel === 'beta' ? 'beta' : 'stable'
       };
     }
     if (Object.keys(files).length) out.versions[v] = { files };
@@ -101,10 +133,11 @@ async function download(url, expectedSha, maxSize) {
 async function refresh(bundledFor, { versionsOnly = null } = {}) {
   let remote;
   try {
-    const res = await fetch(`${baseUrl()}/manifest.json`, { signal: AbortSignal.timeout(10000), headers: { 'User-Agent': 'VortexClientLauncher', 'Cache-Control': 'no-cache' } });
-    if (res.status === 404) remote = { schema: 1, versions: {}, news: [] };        // noch nichts hochgeladen
-    else if (!res.ok) throw new Error(`manifest answered ${res.status}`);
-    else remote = validManifest(await res.json());
+    remote = await fetchManifest('manifest.json');
+    if (betaCheck()) {
+      try { remote = mergeBeta(remote, await fetchManifest('manifest-beta.json')); }
+      catch (e) { log(`Beta manifest: ${e.message}`, 'warn'); }
+    }
   } catch (e) {
     lastCheck = { at: Date.now(), ok: false, error: e.message };
     return { updated: [], error: e.message };
@@ -127,7 +160,7 @@ async function refresh(bundledFor, { versionsOnly = null } = {}) {
         ensureDir(path.dirname(target));
         fs.writeFileSync(`${target}.part`, buf);
         fs.renameSync(`${target}.part`, target);
-        updated.push({ version: v, id, kind: kindOf(id), name: f.name, newVersion: cleanVersion(f.version) });
+        updated.push({ version: v, id, kind: kindOf(id), name: f.name, newVersion: cleanVersion(f.version), notes: f.notes || '', channel: f.channel || 'stable' });
         log(`Vortex update: ${f.name} ${cleanVersion(f.version)} for Minecraft ${v} downloaded.`);
       } catch (err) {
         log(`Vortex update ${f.file}: ${err.message}`, 'warn');
@@ -149,6 +182,6 @@ async function refresh(bundledFor, { versionsOnly = null } = {}) {
 
 module.exports = {
   CORE_IDS, ADDON_IDS, kindOf, cleanVersion, isNewer, safeName,
-  manifest, validManifest, versions, entries, refresh, assetUrl, sha256File,
+  manifest, validManifest, versions, entries, refresh, assetUrl, sha256File, setBetaCheck, mergeBeta,
   status: () => lastCheck
 };

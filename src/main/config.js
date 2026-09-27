@@ -23,6 +23,13 @@ module.exports = Object.freeze({
   admins: ['m_rc'],
 
   /**
+   * Beta-Tester (Minecraft-Namen): sehen in den Einstellungen den Schalter
+   * "Beta-Updates" und bekommen neue Client-/Addon-Builds, bevor du sie fuer
+   * alle freigibst. Admins koennen das immer.
+   */
+  betaTesters: [],
+
+  /**
    * Discord Rich Presence: Application-ID aus
    * https://discord.com/developers/applications (siehe README).
    * Leer = Discord-Anzeige aus.

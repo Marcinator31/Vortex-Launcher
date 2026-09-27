@@ -544,7 +544,7 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px;
 .av-card { padding: 0; overflow: hidden; }
 .av-head { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
 .av-head strong { font: 700 18px var(--font-display); }
-.av-row { display: grid; grid-template-columns: 1.4fr .8fr .8fr 1fr auto; gap: 12px; align-items: center; padding: 10px 18px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.av-row { display: grid; grid-template-columns: 1.4fr .7fr .7fr .7fr .9fr auto; gap: 12px; align-items: center; padding: 10px 18px; border-bottom: 1px solid var(--line); font-size: 13px; }
 .av-row:last-child { border-bottom: 0; }
 .av-row.head { font-size: 10.5px; letter-spacing: .12em; font-weight: 700; color: var(--dim); padding-top: 8px; padding-bottom: 8px; background: var(--inner); }
 .av-row .nm { display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -583,5 +583,14 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px;
   .hero-copy { max-width: 440px; }
   .hero-copy h1 { font-size: 36px; }
   .skins-layout { grid-template-columns: 300px 1fr; }
-  .av-row { grid-template-columns: 1.3fr .7fr .7fr .9fr auto; }
+  .av-row { grid-template-columns: 1.3fr .6fr .6fr .6fr .8fr auto; }
 }
+
+/* "Was ist neu" nach einem Vortex-Update */
+.wn-list { display: grid; gap: 12px; max-height: 52vh; overflow: auto; margin: 12px 0 16px; }
+.wn-item { background: var(--inner); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.wn-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.wn-head .muted { margin-left: auto; }
+.wn-item ul { margin: 8px 0 0 18px; display: grid; gap: 4px; font-size: 13px; }
+.wn-item p { margin: 8px 0 0; font-size: 13px; }
+.av-row .row-btns { display: flex; gap: 6px; justify-content: flex-end; }

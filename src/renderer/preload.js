@@ -125,7 +125,8 @@ contextBridge.exposeInMainWorld('vortex', {
   update: {
     check: () => call('update:check'),
     download: () => call('update:download'),
-    install: () => call('update:install')
+    install: () => call('update:install'),
+    now: () => call('update:now')
   },
   on: {
     log: on('log'),

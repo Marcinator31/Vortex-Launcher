@@ -6,15 +6,12 @@
  */
 module.exports = Object.freeze({
   /**
-   * GitHub-Repo des Launchers. Hier liegen
-   *  - die Launcher-Releases (Auto-Update des Launchers) und
-   *  - das Release "vortex-files" mit den Client-/Addon-Jars aus dem
-   *    Admin-Bereich (wird automatisch angelegt, als Pre-Release, damit der
-   *    Launcher-Updater es ignoriert).
-   * Das Repo muss OEFFENTLICH sein, sonst koennen die Launcher der Spieler
-   * die Dateien nicht laden.
+   * OEFFENTLICHES Repo des Launchers. Hier liegen Code, die fertigen EXEs
+   * (Auto-Update fuer alle Spieler) und das Release "vortex-files" mit den
+   * Client-/Addon-Jars aus dem Admin-Bereich (automatisch, als Pre-Release).
+   * Wenn du das aenderst: auch package.json -> build -> publish anpassen.
    */
-  github: { owner: 'Lukas3578', repo: 'Vortex-launcher' },
+  github: { owner: 'Marcinator31', repo: 'Vortex-Launcher' },
   filesTag: 'vortex-files',
 
   /**
@@ -23,7 +20,7 @@ module.exports = Object.freeze({
    * Strg+Umschalt+A erreichbar. Hochladen geht trotzdem NUR mit eurem
    * GitHub-Token -- die Liste blendet nur den Menuepunkt ein.
    */
-  admins: [M_rc],
+  admins: ['m_rc'],
 
   /**
    * Discord Rich Presence: Application-ID aus

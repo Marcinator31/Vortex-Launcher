@@ -285,6 +285,11 @@
     'Often caused by graphics drivers or overlays (Discord, MSI Afterburner, RivaTuner, OBS hooks). Update your graphics driver and turn overlays off.': 'Oft durch Grafiktreiber oder Overlays verursacht (Discord, MSI Afterburner, RivaTuner, OBS). Aktualisiere den Grafiktreiber und schalte Overlays aus.',
     'A mod is not made for this version': 'Eine Mod ist nicht für diese Version gemacht', '{0}: {1}. Update your mods or disable the ones you added recently.': '{0}: {1}. Aktualisiere deine Mods oder schalte die zuletzt hinzugefügten aus.',
     'No known cause found': 'Keine bekannte Ursache gefunden', 'Minecraft says: "{0}"{1}': 'Minecraft meldet: „{0}“{1}',
+    'New update': 'Neues Update', 'Update now': 'Jetzt aktualisieren', 'Updating…': 'Wird aktualisiert…', 'Restarting…': 'Startet neu…',
+    'Download': 'Herunterladen', 'Open download page': 'Download-Seite öffnen', 'New launcher update: version {0}.': 'Neues Launcher-Update: Version {0}.',
+    'Version {0} is available. The portable version is updated by downloading it again.': 'Version {0} ist verfügbar. Die Portable-Version wird aktualisiert, indem du sie neu herunterlädst.',
+    'The download failed. Try again.': 'Der Download ist fehlgeschlagen. Versuch es nochmal.', 'No update information found.': 'Keine Update-Infos gefunden.',
+    'Updates are only checked in the built app.': 'Updates werden nur in der gebauten App geprüft.',
     '{0} or later': '{0} oder neuer', 'any version': 'beliebige Version',
     'Check the console and crash report. If you added mods recently, disable them and try again.': 'Schau in die Konsole und den Crash-Report. Wenn du kürzlich Mods hinzugefügt hast, schalte sie aus und versuch es nochmal.'
   };

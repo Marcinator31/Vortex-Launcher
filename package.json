@@ -41,8 +41,8 @@
     ],
     "publish": {
       "provider": "github",
-      "owner": "Lukas3578",
-      "repo": "Vortex-launcher",
+      "owner": "Marcinator31",
+      "repo": "Vortex-Launcher",
       "releaseType": "release"
     },
     "win": {

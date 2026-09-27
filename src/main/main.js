@@ -357,6 +357,7 @@ function registerIpc() {
   handle('update:check', async () => ({ update: await updater.check() }));
   handle('update:download', async () => ({ update: await updater.download() }));
   handle('update:install', () => { updater.install(); return {}; });
+  handle('update:now', async () => ({ update: await updater.update() }));
 }
 
 process.on('uncaughtException', e => core.appendFileLog(paths.crashLog, `uncaughtException: ${e?.stack || e}`));

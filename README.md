@@ -34,12 +34,27 @@ Nur eine der beiden bauen: `npm run dist:setup` oder `npm run dist:portable`.
 | Windows SmartScreen warnt beim Starten der EXE | Normal bei unsignierten Programmen: *Weitere Informationen > Trotzdem ausfuehren* |
 | `EPERM` / Datei gesperrt | Laufenden Launcher schliessen, `release\` loeschen, nochmal |
 
-## Ueber GitHub bauen (optional)
+## Automatisch bauen + Auto-Update fuer alle Spieler (GitHub)
 
-`.github/workflows/release.yml` baut die EXE auf GitHub, sobald ein Tag wie
-`v2.0.0` gepusht wird, und veroeffentlicht sie als Release in
-`Lukas3578/Vortex-launcher`. Von dort holt sich der eingebaute Auto-Updater
-neue Versionen. Vor einem neuen Release die `version` in `package.json` erhoehen.
+Repo: `Marcinator31/Vortex-Launcher` -- muss **oeffentlich** sein (sonst koennen die
+Launcher der Spieler keine Updates laden). Einrichten muss man nichts weiter.
+
+Jede Aenderung startet unter *Actions* einen Build (5-10 Min.). Danach steht unter
+*Releases* die neue Version (z. B. `v2.1.7`) mit `Vortex-Client-Setup-….exe`. Alle
+installierten Launcher zeigen innerhalb von 30 Minuten (oder beim naechsten Start)
+**"Neues Update"** in der Seitenleiste -- ein Klick auf **Aktualisieren** laedt es und
+startet den Launcher neu.
+
+- Die Versionsnummer zaehlt automatisch hoch. Fuer einen groesseren Sprung `version` in
+  `package.json` z. B. auf `2.2.0` setzen.
+- Kein Build fuer eine Aenderung: `[skip ci]` in die Commit-Nachricht schreiben.
+  Aenderungen nur an `.md`-Dateien bauen nie.
+- Mehrere Aenderungen kurz hintereinander: nur der letzte Build laeuft zu Ende.
+- Beim Hochladen im Browser mehrere Dateien in **einem** Commit hochladen, dann gibt es nur ein Update.
+- Die **Portable-EXE** kann sich nicht selbst aktualisieren; dort oeffnet der Knopf die Download-Seite.
+  Spielern deshalb die **Setup-EXE** geben.
+- Wer noch den alten Launcher von `Lukas3578/Vortex-launcher` hat, muss die neue Setup-EXE
+  einmal selbst installieren -- danach laufen Updates automatisch.
 
 ## Was drin ist
 
@@ -68,11 +83,9 @@ Launcher-Build noetig.
 
 **Einmalig einrichten:**
 
-1. Das Repo `Lukas3578/Vortex-launcher` muss **oeffentlich** sein (sonst koennen die Spieler nichts laden).
-2. Auf GitHub einen Token erstellen: *Settings > Developer settings > Personal access tokens >
-   Fine-grained tokens > Generate new token*
-   - Repository access: *Only select repositories* > `Vortex-launcher`
-   - Permissions: *Contents* > **Read and write**
+1. Gespeichert wird im Release **vortex-files** dieses Repos.
+2. Token erstellen (nur fuer den Admin-Bereich noetig): <https://github.com/settings/personal-access-tokens/new>
+   -- Repository access: nur `Vortex-Launcher`, Permissions: **Contents: Read and write**.
 3. Im Launcher **Strg + Umschalt + A** druecken (oeffnet den Admin-Bereich), Token einfuegen, *Anmelden*.
    Der Token wird mit der Windows-Verschluesselung nur auf deinem PC gespeichert.
    Danach steht "Admin" dauerhaft in der Seitenleiste.
@@ -87,7 +100,7 @@ Minecraft-Version pruefen (wird aus der Jar erkannt), *Veroeffentlichen*. Fertig
 - *Online entfernen* nimmt eine Datei zurueck (Spieler nutzen dann wieder die mitgelieferte).
 - Unter **News fuer alle Spieler** erscheint dein Text bei allen unter "Neuigkeiten".
 - Jede Datei wird per SHA-256 geprueft -- eine manipulierte Datei wird nicht benutzt.
-- Gespeichert wird alles im Release **vortex-files** deines Repos (als Pre-Release, stoert den
+- Gespeichert wird alles im Release **vortex-files** des oeffentlichen Repos (als Pre-Release, stoert den
   Launcher-Updater nicht). Bitte dieses Release nicht von Hand loeschen.
 
 Optional: In `src/main/config.js` unter `admins` deinen Minecraft-Namen eintragen, dann ist der

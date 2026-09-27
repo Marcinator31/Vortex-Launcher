@@ -102,6 +102,11 @@
       <button class="nav-item admin-item" data-page="admin" id="navAdmin" hidden><svg><use href="#i-shield"/></svg><span>Admin</span></button>
     </nav>
     <div class="sidebar-foot">
+      <div class="update-pill" id="updatePill" hidden>
+        <div class="up-text"><strong id="upTitle">New update</strong><span id="upSub"></span></div>
+        <button class="btn small" id="upBtn"><svg><use href="#i-download"/></svg><span id="upBtnLabel">Update</span></button>
+        <div class="up-bar" id="upBar" hidden><i></i></div>
+      </div>
       <button class="console-toggle" id="consoleToggle"><svg><use href="#i-terminal"/></svg><span>Console</span><b id="consoleBadge" hidden>!</b></button>
       <div class="account" id="account"></div>
     </div>

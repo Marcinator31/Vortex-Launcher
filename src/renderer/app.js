@@ -1567,16 +1567,35 @@
       unavailable: [t('No update information found right now.'), t('Try again')],
       dev: [t('Development start: updates are only checked in the installed app.'), t('Check for updates')]
     };
+    if (u.portable && u.status === 'available') texts.available = [t('Version {0} is available. The portable version is updated by downloading it again.', u.available), t('Open download page')];
+    if (u.status === 'available') texts.available[1] = u.portable ? t('Open download page') : t('Update now');
     const [text, label] = texts[u.status] || texts.idle;
-    $('#updText').textContent = text;
+    $('#updText').textContent = u.error && u.status === 'available' ? tr(u.error) : text;
     btn.textContent = label;
+    // Hinweis in der Seitenleiste
+    const pill = $('#updatePill');
+    const show = ['available', 'downloading', 'ready'].includes(u.status);
+    pill.hidden = !show;
+    if (show) {
+      $('#upTitle').textContent = u.status === 'downloading' ? t('Updating…') : u.status === 'ready' ? t('Restarting…') : t('New update');
+      $('#upSub').textContent = u.status === 'downloading' ? `${u.progress || 0}%` : `v${S.appVersion} → v${u.available}`;
+      $('#upBtn').hidden = u.status !== 'available';
+      $('#upBtnLabel').textContent = u.portable ? t('Download') : t('Update');
+      $('#upBar').hidden = u.status !== 'downloading';
+      $('i', $('#upBar')).style.width = `${u.progress || 0}%`;
+    }
   }
+  async function updateNow() {
+    try { S.update = (await call(api.update.now())).update; } catch (e) { fail(e); }
+    renderUpdate();
+  }
+  $('#upBtn').onclick = updateNow;
   $('#updBtn').onclick = async () => {
     const st = S.update?.status;
     try {
-      if (st === 'available') S.update = (await call(api.update.download())).update;
-      else if (st === 'ready') { await call(api.update.install()); return; }
-      else { S.update = { ...S.update, status: 'checking' }; renderUpdate(); S.update = (await call(api.update.check())).update; }
+      if (st === 'available') { await updateNow(); return; }
+      if (st === 'ready') { await call(api.update.install()); return; }
+      S.update = { ...S.update, status: 'checking' }; renderUpdate(); S.update = (await call(api.update.check())).update;
     } catch (e) { fail(e); }
     renderUpdate();
   };
@@ -1833,7 +1852,15 @@
   });
   api.on.accounts(applyAccounts);
   api.on.versions(list => { if (Array.isArray(list)) { S.versions = list; applyVersions(); } });
-  api.on.update(u => { S.update = u || S.update; renderUpdate(); });
+  let announced = null;
+  api.on.update(u => {
+    S.update = u || S.update;
+    renderUpdate();
+    if (S.update.status === 'available' && announced !== S.update.available) {
+      announced = S.update.available;
+      toast('info', t('New launcher update: version {0}.', S.update.available), [{ label: S.update.portable ? t('Download') : t('Update now'), run: updateNow }]);
+    }
+  });
 
   document.addEventListener('keydown', e => {
     if (!$('#lightbox').hidden) {

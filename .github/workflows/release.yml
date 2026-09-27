@@ -1,14 +1,26 @@
-name: Windows Release
+name: Launcher bauen und veroeffentlichen
 
-# Baut Setup- und Portable-EXE und veroeffentlicht sie als GitHub Release.
-# Ausloesen: Tag pushen (z. B. v2.0.0) oder unter "Actions" manuell starten.
-# Der Auto-Updater im Launcher liest genau diese Releases.
+# Laeuft bei JEDER Aenderung (Branch main/master) und veroeffentlicht die
+# EXE unter "Releases" in diesem Repo. Alle Launcher sehen dann "Neues Update".
+# Kein Token noetig -- GitHub stellt fuer dieses Repo selbst einen bereit.
+#
+# Versionsnummer: Major.Minor aus package.json + laufende Build-Nummer,
+# z. B. 2.1.14. So ist jeder Build automatisch neuer als der vorige.
+#
+# Ohne Build: "[skip ci]" in die Commit-Nachricht schreiben.
+# Nur .md-Dateien geaendert: kein Build.
 
 on:
   push:
-    tags:
-      - 'v*.*.*'
+    branches: [ main, master ]
+    paths-ignore:
+      - '**.md'
   workflow_dispatch:
+
+# Mehrere Aenderungen kurz hintereinander: nur der neueste Build laeuft zu Ende.
+concurrency:
+  group: launcher-release
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -24,19 +36,29 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Versionsnummer setzen
+        shell: bash
+        run: |
+          BASE=$(node -p "require('./package.json').version.split('.').slice(0,2).join('.')")
+          VERSION="$BASE.${{ github.run_number }}"
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Baue Version $VERSION"
+
       - name: Abhaengigkeiten installieren
         run: npm ci
 
-      - name: EXE bauen und Release veroeffentlichen
+      - name: EXE bauen und veroeffentlichen
         run: npm run dist -- --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
-      - name: EXE-Dateien als Artefakt behalten
+      - name: EXE-Dateien zusaetzlich hier speichern
         uses: actions/upload-artifact@v4
         with:
-          name: Vortex-Client-Launcher
+          name: Vortex-Client-Launcher-${{ env.VERSION }}
           path: |
             release/*.exe
             release/latest.yml
+          retention-days: 7

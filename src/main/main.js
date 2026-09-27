@@ -6,7 +6,7 @@
  * Oberflaeche (IPC) und der Lebenszyklus der App. Die eigentliche Arbeit
  * steckt in den Modulen daneben.
  */
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, protocol, net } = require('electron');
 const path = require('path');
 const core = require('./core');
 const settings = require('./settings');
@@ -20,6 +20,11 @@ const updater = require('./updater');
 const config = require('./config');
 const vortexfiles = require('./vortexfiles');
 const perf = require('./perf');
+const importer = require('./importer');
+const music = require('./music');
+
+// Musik: eigenes Schema, damit <audio> Dateien abspielen kann (nur Titel aus der Liste).
+protocol.registerSchemesAsPrivileged([{ scheme: 'vxmusic', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true } }]);
 const crashreport = require('./crashreport');
 const admin = require('./admin');
 const skins = require('./skins');
@@ -75,7 +80,9 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      spellcheck: false
+      spellcheck: false,
+      // Musik darf beim Start spielen, wenn der Spieler das eingestellt hat
+      autoplayPolicy: 'no-user-gesture-required'
     }
   });
   core.setMainWindow(win);
@@ -334,6 +341,14 @@ function registerIpc() {
   // Absturzbericht an den Besitzer (nur auf Knopfdruck oder mit Einstellung)
   handle('crash:report', () => crashreport.send(launch.lastCrash()));
 
+  // Musik
+  handle('music:tracks', () => { const c = settings.get(); return { tracks: music.tracks(c.musicSource, c.musicFolder) }; });
+  handle('music:folder', async () => {
+    const pick = await dialog.showOpenDialog(core.getMainWindow(), { title: 'Choose your music folder', properties: ['openDirectory'] });
+    if (pick.canceled || !pick.filePaths[0]) return { canceled: true };
+    return { settings: settings.set({ musicFolder: pick.filePaths[0], musicSource: 'folder' }) };
+  });
+
   // Leistungs-Check
   handle('perf:info', v => perf.info(v));
   handle('perf:renderDistance', (v, n) => {
@@ -408,6 +423,29 @@ function registerIpc() {
     return { ...r, versions: versionsOverview() };
   });
 
+  // Profile aus anderen Launchern (Modrinth App, NoRisk, CurseForge, Prism, Lunar ...)
+  const gefunden = new Map();
+  const kurz = p => ({ id: p.id, launcher: p.launcher, launcherName: p.launcherName, name: p.name, gameVersion: p.gameVersion, loader: p.loader, mods: p.mods.length, has: p.has, note: p.note, gameDir: p.gameDir });
+  handle('import:scan', () => {
+    const r = importer.scan();
+    for (const p of r.profiles) gefunden.set(p.id, p);
+    return { profiles: r.profiles.map(kurz) };
+  });
+  handle('import:folder', async () => {
+    const pick = await dialog.showOpenDialog(core.getMainWindow(), { title: 'Choose a Minecraft or instance folder', properties: ['openDirectory'] });
+    if (pick.canceled || !pick.filePaths[0]) return { canceled: true };
+    const { profile } = importer.scanFolder(pick.filePaths[0]);
+    gefunden.set(profile.id, profile);
+    return { profile: kurz(profile) };
+  });
+  handle('import:run', async (id, version, opts) => {
+    const p = gefunden.get(String(id || ''));
+    if (!p) throw new Error('Search for profiles again.');
+    if (launch.sessionList().some(x => x.version === version)) throw new Error('Close Minecraft first.');
+    const r = await importer.importProfile(p, version, opts || {}, modrinth);
+    return { ...r, versions: versionsOverview(), serverList: servers.list() };
+  });
+
   // News
   handle('news:get', async () => ({ items: await news.get() }));
   handle('crash:last', () => ({ analysis: launch.lastCrash() }));
@@ -423,6 +461,7 @@ process.on('uncaughtException', e => core.appendFileLog(paths.crashLog, `uncaugh
 process.on('unhandledRejection', e => core.appendFileLog(paths.crashLog, `unhandledRejection: ${e?.stack || e}`));
 
 app.whenReady().then(() => {
+  try { protocol.handle('vxmusic', req => music.serve(req, net)); } catch (e) { log(`Music protocol: ${e.message}`, 'warn'); }
   if (!app.hasSingleInstanceLock()) return;
   core.ensureDir(paths.dataRoot);
   accounts.load();

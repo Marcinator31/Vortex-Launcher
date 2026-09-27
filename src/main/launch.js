@@ -66,6 +66,22 @@ function parallelDirectory(version, account) {
   return target;
 }
 
+/**
+ * Java-Voreinstellungen (Einstellungen -> Spiel).
+ *  smooth: G1 mit kurzen Pausen und grosser junger Generation -- weniger
+ *          Ruckler beim Chunk-Laden (bewaehrte Werte fuer Minecraft).
+ *  lowram: sparsamer: kleinere Regionen, doppelte Texte zusammenlegen.
+ *  default: nichts extra -- Java entscheidet.
+ * Alle Flags gibt es seit Java 17 (Minecraft 1.18+) und in Java 21/25.
+ */
+const JVM_PRESETS = {
+  smooth: ['-XX:+UseG1GC', '-XX:+ParallelRefProcEnabled', '-XX:MaxGCPauseMillis=50', '-XX:+UnlockExperimentalVMOptions',
+    '-XX:+DisableExplicitGC', '-XX:G1NewSizePercent=30', '-XX:G1MaxNewSizePercent=40', '-XX:G1HeapRegionSize=8M',
+    '-XX:G1ReservePercent=20', '-XX:InitiatingHeapOccupancyPercent=15'],
+  lowram: ['-XX:+UseG1GC', '-XX:MaxGCPauseMillis=80', '-XX:G1HeapRegionSize=4M', '-XX:+UseStringDeduplication', '-XX:+DisableExplicitGC'],
+  default: []
+};
+
 const STAGES = { assets: 'Downloading assets', natives: 'Preparing natives', classes: 'Downloading libraries', 'assets-copy': 'Copying assets' };
 
 async function start({ version, serverId = null, address = null }) {
@@ -177,7 +193,7 @@ async function start({ version, serverId = null, address = null }) {
       window: cfg.fullscreen ? { fullscreen: true } : { width: cfg.width, height: cfg.height },
       customArgs: [
         ...(jre.major >= 22 ? ['--enable-native-access=ALL-UNNAMED'] : []),
-        ...parseArgs(cfg.jvmArgs)
+        ...(cfg.jvmPreset === 'custom' ? parseArgs(cfg.jvmArgs) : (JVM_PRESETS[cfg.jvmPreset] || []))
       ]
     };
     if (server) options.quickPlay = { type: 'multiplayer', identifier: server.address };
@@ -204,7 +220,12 @@ async function start({ version, serverId = null, address = null }) {
       if (cfg.afterLaunch === 'hide') setTimeout(() => { try { win.hide(); } catch (_) {} }, 1500);
     }
 
+    // Neue Screenshots (F2) direkt in die Zwischenablage -- dann reicht in
+    // Discord ein Strg+V. Nur solange diese Sitzung laeuft.
+    const shotWatcher = watchScreenshots(path.join(gameDirectory, 'screenshots'));
+
     child.on('close', code => {
+      try { shotWatcher && shotWatcher.close(); } catch (_) {}
       sessions.delete(id);
       try { instances.addPlaytime(v, Date.now() - launchedAt); } catch (_) {}
       core.send('versions', instances.allVersions().map(instances.summary));
@@ -242,6 +263,31 @@ async function start({ version, serverId = null, address = null }) {
   } finally {
     launching = false;
   }
+}
+
+function watchScreenshots(dir) {
+  try {
+    ensureDir(dir);
+    const seen = new Set(fs.readdirSync(dir));
+    const timers = new Map();
+    return fs.watch(dir, (_ev, name) => {
+      if (!name || !/\.png$/i.test(name) || seen.has(name)) return;
+      clearTimeout(timers.get(name));
+      // Minecraft schreibt die Datei in mehreren Schritten -- kurz warten.
+      timers.set(name, setTimeout(() => {
+        timers.delete(name);
+        const file = path.join(dir, name);
+        if (!exists(file) || seen.has(name)) return;
+        seen.add(name);
+        if (!settings.get().autoCopyScreenshots) return;
+        try {
+          const { clipboard, nativeImage } = require('electron');
+          const img = nativeImage.createFromPath(file);
+          if (!img.isEmpty()) { clipboard.writeImage(img); notify('success', 'Screenshot copied -- paste it in Discord with Ctrl+V.'); }
+        } catch (e) { log(`Screenshot copy: ${e.message}`, 'warn'); }
+      }, 700));
+    });
+  } catch (e) { log(`Screenshot watcher: ${e.message}`, 'debug'); return null; }
 }
 
 function stop(id) {

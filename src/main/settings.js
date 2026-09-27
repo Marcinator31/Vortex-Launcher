@@ -30,7 +30,16 @@ const DEFAULTS = Object.freeze({
   autoBackup: true,               // Welten sichern, bevor aktualisierte Mods/Vortex-Dateien starten
   autoUpdateMods: false,          // Mod-Updates beim Start automatisch einspielen
   discord: true,                  // Discord-Anzeige (wenn in config.js eingerichtet)
-  language: 'auto'                // auto | de | en
+  language: 'auto',               // auto | de | en
+  musicSource: 'minecraft',       // minecraft | folder
+  musicFolder: '',
+  musicVolume: 0.4,
+  musicShuffle: true,
+  musicAutoplay: false,
+  musicPauseInGame: true,
+  accent: 'vortex',               // Akzentfarbe (siehe Oberflaeche)
+  jvmPreset: 'custom',            // smooth | lowram | default | custom
+  autoCopyScreenshots: true       // F2 im Spiel -> Bild direkt in der Zwischenablage
 });
 
 function clampInt(value, min, max, fallback) {
@@ -48,6 +57,15 @@ function normalize(raw = {}) {
   s.height = clampInt(s.height, 480, 4320, DEFAULTS.height);
   s.fullscreen = Boolean(s.fullscreen);
   s.includeAddon = Boolean(s.includeAddon);
+  s.musicSource = s.musicSource === 'folder' ? 'folder' : 'minecraft';
+  s.musicFolder = typeof s.musicFolder === 'string' ? s.musicFolder.slice(0, 500) : '';
+  s.musicVolume = Math.max(0, Math.min(1, Number(s.musicVolume) || 0));
+  s.musicShuffle = Boolean(s.musicShuffle);
+  s.autoCopyScreenshots = Boolean(s.autoCopyScreenshots);
+  s.musicAutoplay = Boolean(s.musicAutoplay);
+  s.musicPauseInGame = Boolean(s.musicPauseInGame);
+  s.accent = /^[a-z]{2,12}$/.test(String(s.accent)) ? s.accent : 'vortex';
+  s.jvmPreset = ['smooth', 'lowram', 'default', 'custom'].includes(s.jvmPreset) ? s.jvmPreset : 'custom';
   s.autoCrashReport = Boolean(s.autoCrashReport);
   s.betaChannel = Boolean(s.betaChannel);
   s.showConsoleOnCrash = Boolean(s.showConsoleOnCrash);

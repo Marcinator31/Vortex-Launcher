@@ -707,6 +707,94 @@
   $('#importPack').onclick = () => importPack();
 
   // -----------------------------------------------------------------------
+  // Profil aus einem anderen Launcher uebernehmen
+  // -----------------------------------------------------------------------
+  const LOADER_NAME = { fabric: 'Fabric', forge: 'Forge', neoforge: 'NeoForge', quilt: 'Quilt', vanilla: 'Vanilla' };
+  function openLauncherImport() {
+    const st = { profiles: null, sel: null, running: false };
+    let off = null;
+    const cleanup = () => { try { off && off(); } catch (_) {} off = null; };
+    const { el, close } = openModal(`<h3>${icon('users')}${esc(t('Take over a profile from another launcher'))}</h3>
+      <p class="muted">${esc(t('Modrinth App, NoRisk Client, Lunar Client, CurseForge, Prism, ATLauncher, GDLauncher or any folder. Mods are loaded in the right version for Fabric; nothing is changed in the other launcher.'))}</p>
+      <div id="impBody">${skeletons(3)}</div>`, { wide: true, onClose: cleanup });
+    const body = $('#impBody', el);
+    off = api.on.importProgress(pr => { const l = $('#impProg', el); if (l && pr) l.textContent = pr.label ? `${tr(pr.label)}${pr.percent != null ? ` · ${pr.percent}%` : ''}` : ''; });
+    const meta = p => [p.gameVersion ? `Minecraft ${p.gameVersion}` : null, p.loader ? (LOADER_NAME[p.loader] || p.loader) : null, t('{0} mods', p.mods)].filter(Boolean).join(' · ');
+
+    function renderList() {
+      const groups = new Map();
+      for (const p of st.profiles) (groups.get(p.launcherName) || groups.set(p.launcherName, []).get(p.launcherName)).push(p);
+      body.innerHTML = `${st.profiles.length ? [...groups].map(([ln, ps]) => `
+          <div class="imp-group"><div class="imp-launcher">${esc(ln)}</div>
+            ${ps.map(p => `<button class="imp-item ${st.sel?.id === p.id ? 'on' : ''}" data-imp="${esc(p.id)}"><strong>${esc(p.name)}</strong><span>${esc(meta(p))}</span></button>`).join('')}
+          </div>`).join('') : `<p class="muted">${esc(t('No other launcher found on this PC.'))}</p>`}
+        <div class="row-btns"><button class="btn ghost" id="impFolder">${icon('folder')}${esc(t('Choose a folder…'))}</button></div>
+        <div id="impOpts"></div>`;
+      $('#impFolder', el).onclick = e => busy(e.currentTarget, async () => {
+        const r = await call(api.importer.folder());
+        if (r.canceled) return;
+        st.profiles = [...st.profiles.filter(x => x.id !== r.profile.id), r.profile];
+        st.sel = r.profile;
+        renderList();
+      });
+      if (st.sel) { renderOpts(); setTimeout(() => $('#impOpts', el)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 30); }
+    }
+
+    function renderOpts() {
+      const p = st.sel, h = p.has || {};
+      const ziel = S.versions.some(x => x.version === p.gameVersion) ? p.gameVersion : selected();
+      const box = (id, label, on, dis) => `<label class="imp-opt ${dis ? 'dis' : ''}"><input type="checkbox" data-o="${id}" ${on && !dis ? 'checked' : ''} ${dis ? 'disabled' : ''} /><span>${esc(label)}</span></label>`;
+      $('#impOpts', el).innerHTML = `
+        <div class="imp-opts">
+          <div class="imp-sel"><strong>${esc(p.name)}</strong><span class="muted small">${esc(p.launcherName)} · ${esc(meta(p))}</span></div>
+          ${p.note ? `<p class="muted small">${esc(tr(p.note))}</p>` : ''}
+          ${p.loader && !['fabric', 'quilt', 'vanilla'].includes(p.loader) ? `<p class="muted small">${esc(t('{0} mods do not run on Fabric -- where a Fabric version exists on Modrinth, it is used instead.', LOADER_NAME[p.loader] || p.loader))}</p>` : ''}
+          <div class="imp-grid">
+            ${box('mods', t('Mods ({0})', p.mods), true, !p.mods)}
+            ${box('config', t('Mod settings (config)'), true, !h.config)}
+            ${box('resourcepacks', t('Resource packs'), true, !h.resourcepacks)}
+            ${box('shaderpacks', t('Shaders'), true, !h.shaderpacks)}
+            ${box('servers', t('Servers'), true, !h.servers)}
+            ${box('options', t('Game settings & key binds (replaces yours)'), false, !h.options)}
+          </div>
+          <div class="imp-target"><span>${esc(t('Into'))}</span><select class="select" id="impVer">${S.versions.map(x => `<option value="${esc(x.version)}" ${x.version === ziel ? 'selected' : ''}>Minecraft ${esc(x.version)}${x.vortex ? ' · Vortex' : ''}</option>`).join('')}</select></div>
+          <div class="row-btns"><span class="muted small grow" id="impProg"></span><button class="btn" id="impGo">${icon('download')}${esc(t('Take over'))}</button></div>
+        </div>`;
+      $('#impGo', el).onclick = e => busy(e.currentTarget, async () => {
+        const opts = {};
+        $$('[data-o]', el).forEach(c => { opts[c.dataset.o] = c.checked; });
+        const v = $('#impVer', el).value;
+        const r = await call(api.importer.run(p.id, v, opts));
+        S.versions = r.versions || S.versions;
+        if (r.serverList) S.servers = r.serverList;
+        renderVersions(); renderVersionMenu();
+        const lines = [
+          r.installed.length ? t('{0} mods loaded from Modrinth in the right version', r.installed.length) : null,
+          r.copied.length ? t('{0} mods copied', r.copied.length) : null,
+          r.files ? t('{0} files (settings, packs, shaders)', r.files) : null,
+          r.servers ? t('{0} servers added', r.servers) : null,
+          r.options ? t('Game settings and key binds taken over') : null
+        ].filter(Boolean);
+        $('#impOpts', el).innerHTML = `<div class="imp-opts"><div class="finding ok">${icon('check')}<div><strong>${esc(t('Done -- Minecraft {0}', v))}</strong>
+          <p>${lines.map(esc).join('<br>') || esc(t('Nothing new to take over.'))}</p>
+          ${r.unavailable.length ? `<p class="muted small">${esc(t('Not available for Fabric {0}: {1}', v, r.unavailable.slice(0, 12).join(', ')))}${r.unavailable.length > 12 ? ' …' : ''}</p>` : ''}</div></div>
+          <div class="row-btns"><span class="grow"></span><button class="btn ghost" data-close>${esc(t('Close'))}</button><button class="btn" data-mods>${icon('cube')}${esc(t('Open mods'))}</button></div></div>`;
+        $('[data-close]', el).onclick = () => { cleanup(); close(); };
+        $('[data-mods]', el).onclick = () => { cleanup(); close(); S.contentVersion = v; showPage('mods'); };
+      });
+    }
+
+    body.onclick = e => {
+      const b = e.target.closest('[data-imp]');
+      if (!b) return;
+      st.sel = st.profiles.find(x => x.id === b.dataset.imp) || null;
+      renderList();
+    };
+    call(api.importer.scan()).then(r => { st.profiles = r.profiles || []; renderList(); }).catch(err => { body.innerHTML = `<p class="muted">${esc(tr(err.message))}</p>`; });
+  }
+  $('#importLauncher').onclick = () => openLauncherImport();
+
+  // -----------------------------------------------------------------------
   // Inhalte: Instanz-Auswahl
   // -----------------------------------------------------------------------
   const contentVersion = () => (S.versions.some(x => x.version === S.contentVersion) ? S.contentVersion : selected());
@@ -1090,7 +1178,7 @@
     const root = $('#shotGrid');
     if (shotObserver) shotObserver.disconnect();
     if (!S.shots.length) { root.innerHTML = emptyHtml('camera', t('No screenshots yet'), t('Press F2 in Minecraft to take one.')); return; }
-    root.innerHTML = S.shots.map((s, i) => `<div class="shot" data-i="${i}"><img alt="" /><div class="cap">${esc(fmtDate(s.takenAt))}</div></div>`).join('');
+    root.innerHTML = S.shots.map((s, i) => `<div class="shot" data-i="${i}"><img alt="" /><div class="cap">${esc(fmtDate(s.takenAt))}</div><button class="shot-copy" data-scopy title="${esc(t('Copy for Discord'))}">${icon('copy')}</button></div>`).join('');
     const v = contentVersion();
     shotObserver = new IntersectionObserver(entries => {
       for (const en of entries) {
@@ -1105,7 +1193,15 @@
     }, { root: $('.content'), rootMargin: '300px' });
     $$('.shot', root).forEach(el => shotObserver.observe(el));
   }
-  $('#shotGrid').addEventListener('click', e => { const s = e.target.closest('.shot'); if (s) openLightbox(+s.dataset.i); });
+  $('#shotGrid').addEventListener('click', async e => {
+    const s = e.target.closest('.shot');
+    if (!s) return;
+    if (e.target.closest('[data-scopy]')) {
+      try { await call(api.shots.copy(contentVersion(), S.shots[+s.dataset.i].file)); toast('success', t('Copied -- paste it in Discord with Ctrl+V.')); } catch (err) { fail(err); }
+      return;
+    }
+    openLightbox(+s.dataset.i);
+  });
   $('#shotsFolder').onclick = () => call(api.open('screenshots', contentVersion())).catch(fail);
 
   let lbIndex = -1;
@@ -1543,10 +1639,19 @@
     $('#setWidth').disabled = $('#setHeight').disabled = Boolean(c.fullscreen);
     $('#setJvm').value = c.jvmArgs || '';
     $('#setAddon').checked = c.includeAddon !== false;
+    $$('#setJvmPreset button').forEach(b => b.classList.toggle('active', b.dataset.value === (c.jvmPreset || 'custom')));
+    $('#setJvm').closest('.set-row').hidden = (c.jvmPreset || 'custom') !== 'custom';
+    $$('#setMusicSource button').forEach(b => b.classList.toggle('active', b.dataset.value === (c.musicSource || 'minecraft')));
+    $('#musicInfo').textContent = c.musicSource === 'folder' && c.musicFolder ? t('Own folder: {0}', c.musicFolder) : t('The Minecraft soundtrack from your downloaded game files, or your own music folder.');
+    $('#setMusicShuffle').checked = c.musicShuffle !== false;
+    $('#setMusicAuto').checked = Boolean(c.musicAutoplay);
+    $('#setMusicPause').checked = c.musicPauseInGame !== false;
+    renderAccents();
     $('#setBetaRow').hidden = !(S.betaAllowed || S.adminVisible);
     $('#setBeta').checked = Boolean(c.betaChannel);
     $('#setConsoleCrash').checked = c.showConsoleOnCrash !== false;
     $('#setCrashRow').hidden = !S.crashReports;
+    $('#setAutoShot').checked = c.autoCopyScreenshots !== false;
     $('#setAutoCrash').checked = Boolean(c.autoCrashReport);
     $('#setAutoBackup').checked = c.autoBackup !== false;
     $('#setAutoUpdate').checked = Boolean(c.autoUpdateMods);
@@ -1575,6 +1680,7 @@
   $('#setJvm').onchange = e => saveSettings({ jvmArgs: e.target.value.trim() });
   $('#setConsoleCrash').onchange = e => saveSettings({ showConsoleOnCrash: e.target.checked });
   $('#setAutoCrash').onchange = e => saveSettings({ autoCrashReport: e.target.checked });
+  $('#setAutoShot').onchange = e => saveSettings({ autoCopyScreenshots: e.target.checked });
   $('#setAutoBackup').onchange = e => saveSettings({ autoBackup: e.target.checked });
   $('#setAutoUpdate').onchange = e => saveSettings({ autoUpdateMods: e.target.checked });
   $('#setDiscord').onchange = e => saveSettings({ discord: e.target.checked });
@@ -1591,6 +1697,103 @@
       toast('success', on ? t('Beta updates on — new builds are downloaded now.') : t('Beta updates off — back to the released version.'));
     }
   };
+  $('#setJvmPreset').onclick = e => {
+    const b = e.target.closest('button[data-value]');
+    if (b) saveSettings({ jvmPreset: b.dataset.value }).then(() => { renderSettings(); toast('success', t('Applies from the next start.')); });
+  };
+
+  // Akzentfarbe
+  const ACCENTS = [['vortex', '#8b5cf6', '#3b82f6'], ['ocean', '#0ea5e9', '#6366f1'], ['emerald', '#10b981', '#06b6d4'], ['rose', '#ec4899', '#8b5cf6'],
+    ['crimson', '#ef4444', '#f97316'], ['sunset', '#f59e0b', '#ef4444'], ['mono', '#a1a1aa', '#71717a']];
+  function applyAccent(a) { if (!a || a === 'vortex') delete document.documentElement.dataset.accent; else document.documentElement.dataset.accent = a; }
+  function renderAccents() {
+    const cur = S.settings.accent || 'vortex';
+    $('#setAccent').innerHTML = ACCENTS.map(([k, a, b]) => `<button data-accent="${k}" class="${k === cur ? 'active' : ''}" style="background:linear-gradient(135deg,${a},${b})" title="${esc(k)}"></button>`).join('');
+  }
+  $('#setAccent').onclick = e => {
+    const b = e.target.closest('[data-accent]');
+    if (!b) return;
+    applyAccent(b.dataset.accent);
+    saveSettings({ accent: b.dataset.accent }).then(renderAccents);
+  };
+
+  // -----------------------------------------------------------------------
+  // Musik
+  // -----------------------------------------------------------------------
+  const M = { tracks: null, order: [], pos: -1, audio: new Audio(), wasPlaying: false, pausedForGame: false };
+  M.audio.preload = 'auto';
+  function musicPaint() {
+    const tr_ = M.tracks && M.order.length ? M.tracks[M.order[M.pos]] : null;
+    const playing = !M.audio.paused;
+    $('#muPlay').innerHTML = icon(playing ? 'pause' : 'play');
+    $('#muPlay').title = playing ? t('Pause') : t('Play music');
+    $('#muTitle').textContent = tr_ ? tr_.title : t('Music');
+    $('#muArtist').textContent = tr_ ? [tr_.artist, tr_.group].filter(Boolean).join(' · ') : (S.settings.musicSource === 'folder' ? t('Own folder') : t('Minecraft soundtrack'));
+  }
+  async function musicLoad() {
+    const r = await call(api.music.tracks());
+    M.tracks = r.tracks || [];
+    M.order = M.tracks.map((_, i) => i);
+    if (S.settings.musicShuffle !== false) for (let i = M.order.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [M.order[i], M.order[j]] = [M.order[j], M.order[i]]; }
+    M.pos = -1;
+    if (!M.tracks.length) {
+      toast('info', S.settings.musicSource === 'folder' ? t('No music found in your folder.') : t('No Minecraft music found yet -- start a version once, then the soundtrack is on your PC.'));
+    }
+  }
+  async function musicNext(step = 1) {
+    if (!M.tracks) await musicLoad();
+    if (!M.order.length) { musicPaint(); return; }
+    M.pos = (M.pos + step + M.order.length) % M.order.length;
+    M.audio.src = M.tracks[M.order[M.pos]].url;
+    M.audio.volume = S.settings.musicVolume ?? 0.4;
+    try { await M.audio.play(); } catch (e) { toast('error', t('This track cannot be played.')); }
+    musicPaint();
+  }
+  async function musicToggle() {
+    M.pausedForGame = false;
+    if (!M.audio.paused) { M.audio.pause(); musicPaint(); return; }
+    if (!M.audio.src) { await musicNext(1); return; }
+    try { await M.audio.play(); } catch (_) {}
+    musicPaint();
+  }
+  M.audio.addEventListener('ended', () => musicNext(1));
+  M.audio.addEventListener('error', () => { if (M.audio.src) setTimeout(() => musicNext(1), 400); });
+  M.audio.addEventListener('play', musicPaint);
+  M.audio.addEventListener('pause', musicPaint);
+  $('#muPlay').onclick = () => musicToggle();
+  $('#muNext').onclick = () => musicNext(1);
+  let volTimer = null;
+  $('#muVol').oninput = e => {
+    const v = Number(e.target.value);
+    M.audio.volume = v;
+    S.settings.musicVolume = v;
+    clearTimeout(volTimer);
+    volTimer = setTimeout(() => saveSettings({ musicVolume: v }), 500);
+  };
+  /** Waehrend Minecraft laeuft pausieren, danach weiter. */
+  function musicForSessions() {
+    if (S.settings.musicPauseInGame === false) return;
+    if (S.sessions.length && !M.audio.paused) { M.audio.pause(); M.pausedForGame = true; }
+    else if (!S.sessions.length && M.pausedForGame) { M.pausedForGame = false; M.audio.play().catch(() => {}); }
+  }
+  async function musicReset() { M.audio.pause(); M.audio.removeAttribute('src'); M.tracks = null; M.order = []; M.pos = -1; musicPaint(); }
+  $('#setMusicSource').onclick = async e => {
+    const b = e.target.closest('button[data-value]');
+    if (!b) return;
+    if (b.dataset.value === 'folder' && !S.settings.musicFolder) { $('#musicFolderPick').click(); return; }
+    await saveSettings({ musicSource: b.dataset.value });
+    renderSettings(); musicReset();
+  };
+  $('#musicFolderPick').onclick = e => busy(e.currentTarget, async () => {
+    const r = await call(api.music.folder());
+    if (r.canceled) return;
+    S.settings = r.settings;
+    renderSettings(); musicReset();
+  });
+  $('#setMusicShuffle').onchange = e => saveSettings({ musicShuffle: e.target.checked }).then(() => { M.tracks = null; });
+  $('#setMusicAuto').onchange = e => saveSettings({ musicAutoplay: e.target.checked });
+  $('#setMusicPause').onchange = e => saveSettings({ musicPauseInGame: e.target.checked });
+
   $('#setAfter').onclick = e => {
     const b = e.target.closest('button[data-value]');
     if (b) saveSettings({ afterLaunch: b.dataset.value }).then(renderSettings);
@@ -1942,6 +2145,7 @@
     const had = S.sessions.length;
     S.sessions = Array.isArray(list) ? list : [];
     renderPlay(); renderAccount(); renderTitlebar();
+    musicForSessions();
     if (S.page === 'home') renderHome();
     if (had && !S.sessions.length) { refreshVersions(); if (S.page === 'worlds') loadWorlds(); if (S.page === 'shots') loadShots(); }
   });
@@ -1969,6 +2173,9 @@
   document.addEventListener('keydown', e => {
     if (!$('#lightbox').hidden) {
       if (e.key === 'Escape') closeLightbox();
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c' && S.shots[lbIndex]) {
+        call(api.shots.copy(contentVersion(), S.shots[lbIndex].file)).then(() => toast('success', t('Copied -- paste it in Discord with Ctrl+V.'))).catch(fail);
+      }
       if (e.key === 'ArrowLeft') openLightbox(lbIndex - 1);
       if (e.key === 'ArrowRight') openLightbox(lbIndex + 1);
       return;
@@ -2001,6 +2208,10 @@
     $('#navAdmin').hidden = !S.adminVisible;
     S.contentVersion = selected();
     if (S.pendingJoin) setTimeout(() => handleJoin(S.pendingJoin), 600);
+    applyAccent(S.settings.accent);
+    $('#muVol').value = S.settings.musicVolume ?? 0.4;
+    musicPaint();
+    if (S.settings.musicAutoplay && !S.sessions.length) setTimeout(() => musicNext(1), 1200);
     renderAccount();
     renderHome();
     renderSettings();

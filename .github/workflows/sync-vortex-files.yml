@@ -1,0 +1,39 @@
+name: Client und Addon automatisch veroeffentlichen
+
+# Holt die neuesten Jars aus Vortex-Client und Vortex-Addon-v2 und legt sie
+# in das Release "vortex-files" -- wie der Admin-Bereich, nur ohne dich.
+# Jeder Launcher laedt sie beim naechsten Start (bzw. beim naechsten Pruefen).
+#
+#   - alle 15 Minuten (GitHub startet geplante Laeufe manchmal etwas spaeter)
+#   - sofort: Actions -> "Client und Addon automatisch veroeffentlichen" -> Run workflow
+#
+# Das Addon-Repo ist privat: dafuer braucht dieses Repo das Secret
+# ADDON_TOKEN (Token mit "Contents: Read-only" fuer Vortex-Addon-v2).
+# Fehlt es, wird nur der Client abgeglichen.
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+  repository_dispatch:
+    types: [ vortex-files ]
+
+concurrency:
+  group: vortex-files
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+      - name: Neueste Jars veroeffentlichen
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ADDON_TOKEN: ${{ secrets.ADDON_TOKEN }}
+        run: python3 .github/scripts/sync_vortex_files.py

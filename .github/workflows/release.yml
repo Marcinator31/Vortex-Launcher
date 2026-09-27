@@ -15,6 +15,9 @@ on:
     branches: [ main, master ]
     paths-ignore:
       - '**.md'
+      # Die automatische Veroeffentlichung von Client/Addon ist kein Launcher-Update
+      - '.github/scripts/**'
+      - '.github/workflows/sync-vortex-files.yml'
   workflow_dispatch:
 
 # Mehrere Aenderungen kurz hintereinander: nur der neueste Build laeuft zu Ende.

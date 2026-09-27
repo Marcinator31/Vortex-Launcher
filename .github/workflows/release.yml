@@ -48,6 +48,21 @@ jobs:
       - name: Abhaengigkeiten installieren
         run: npm ci
 
+      # Tag + Release zuerst anlegen: GitHub verlangt fuer ein veroeffentlichtes
+      # Release einen existierenden Tag. electron-builder laedt die EXEs dann in
+      # dieses Release hoch.
+      - name: Release v${{ env.VERSION }} anlegen
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "Release v$VERSION gibt es schon."
+          else
+            gh release create "v$VERSION" --target "$GITHUB_SHA" --title "Vortex Client Launcher $VERSION" \
+              --notes "$(git log -1 --pretty=%B)" --latest
+          fi
+
       - name: EXE bauen und veroeffentlichen
         run: npm run dist -- --publish always
         env:

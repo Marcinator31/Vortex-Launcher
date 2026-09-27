@@ -1,6 +1,6 @@
 {
   "name": "vortex-launcher",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Vortex Client Launcher - Minecraft with the Vortex Client, Fabric, mods and servers",
   "main": "src/main/main.js",
   "author": "Vortex Client",
@@ -45,6 +45,14 @@
       "repo": "Vortex-Launcher",
       "releaseType": "release"
     },
+    "protocols": [
+      {
+        "name": "Vortex Client",
+        "schemes": [
+          "vortex"
+        ]
+      }
+    ],
     "win": {
       "target": [
         "nsis",

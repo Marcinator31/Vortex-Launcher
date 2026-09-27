@@ -17,7 +17,8 @@
 const path = require('path');
 const fs = require('fs');
 const { Client } = require('minecraft-launcher-core');
-const { paths, ensureDir, exists, log, notify, send, getMainWindow, safeFileName, appendFileLog } = require('./core');
+const core = require('./core');
+const { paths, ensureDir, exists, log, notify, send, getMainWindow, safeFileName, appendFileLog } = core;
 const settings = require('./settings');
 const instances = require('./instances');
 const accounts = require('./accounts');
@@ -28,6 +29,7 @@ const modrinth = require('./modrinth');
 const media = require('./media');
 const crash = require('./crash');
 const discord = require('./discord');
+const preflight = require('./preflight');
 
 let lastCrash = null;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -66,7 +68,7 @@ function parallelDirectory(version, account) {
 
 const STAGES = { assets: 'Downloading assets', natives: 'Preparing natives', classes: 'Downloading libraries', 'assets-copy': 'Copying assets' };
 
-async function start({ version, serverId = null }) {
+async function start({ version, serverId = null, address = null }) {
   if (launching) throw new Error('A launch is already in progress.');
   const account = accounts.current();
   if (!account) throw new Error('Sign in with your Microsoft account first.');
@@ -76,7 +78,9 @@ async function start({ version, serverId = null }) {
   }
   const v = instances.requireVersion(version);
   const cfg = settings.get();
-  const server = serverId ? servers.byId(serverId) : null;
+  // Server aus der Liste -- oder direkt eine Adresse (Einladungslink vortex://join/...)
+  const direkt = address ? servers.normalizeAddress(address) : null;
+  const server = serverId ? servers.byId(serverId) : direkt ? { id: null, name: direkt, address: direkt } : null;
 
   launching = true;
   try {
@@ -103,6 +107,15 @@ async function start({ version, serverId = null }) {
       progress('prepare', 'Installing Fabric API', null);
       try { await modrinth.installMod('fabric-api', v); } catch (e) { log(`Fabric API could not be installed: ${e.message}`, 'warn'); }
     }
+
+    // Pruefung vor dem Start: fehlende, doppelte oder unvertraegliche Mods
+    progress('prepare', 'Checking your mods', null);
+    try {
+      const pf = await preflight.run(v, (id, ver) => modrinth.installMod(id, ver));
+      if (pf.installed.length) notify('success', `Missing mods installed: ${pf.installed.join(', ')}`);
+      if (pf.disabled.length) notify('info', `Installed twice, older copy disabled: ${pf.disabled.join(', ')}`);
+      for (const w of pf.warnings.slice(0, 3)) notify('error', w);
+    } catch (e) { log(`Mod check skipped: ${e.message}`, 'warn'); }
 
     // Mod-Updates automatisch einspielen (Einstellung)
     if (cfg.autoUpdateMods) {
@@ -193,6 +206,8 @@ async function start({ version, serverId = null }) {
 
     child.on('close', code => {
       sessions.delete(id);
+      try { instances.addPlaytime(v, Date.now() - launchedAt); } catch (_) {}
+      core.send('versions', instances.allVersions().map(instances.summary));
       publishSessions();
       const crashed = code !== 0 && code !== null && !session.stopped;
       if (crashed) {
@@ -201,7 +216,14 @@ async function start({ version, serverId = null }) {
         try { analysis = crash.analyze({ version: v, gameDirectory, startedAt: launchedAt, code, output }); }
         catch (e) { log(`Crash analysis failed: ${e.message}`, 'debug'); }
         lastCrash = analysis;
-        send('crash', { version: v, code, crashReports: exists(paths.crashReportsRoot(v)), analysis });
+        let reported = null;
+        if (analysis && settings.get().autoCrashReport) {
+          try {
+            const cr = require('./crashreport');
+            if (cr.enabled()) { reported = 'pending'; cr.send(analysis).then(r => log(`Crash report ${r.id} sent automatically.`)).catch(e => log(`Crash report: ${e.message}`, 'warn')); }
+          } catch (_) {}
+        }
+        send('crash', { version: v, code, crashReports: exists(paths.crashReportsRoot(v)), analysis, reported });
       } else {
         log(`Minecraft ${v} (${account.username}) closed.`);
       }

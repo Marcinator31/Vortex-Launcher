@@ -33,6 +33,14 @@
   const fmtGb = mb => { const gb = mb / 1024; return `${Number.isInteger(gb) ? gb : gb.toFixed(2).replace(/0$/, '')} GB`; };
   const fmtSize = b => (b >= 1073741824 ? `${(b / 1073741824).toFixed(1)} GB` : b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : b ? `${Math.max(1, Math.round(b / 1024))} KB` : t('Folder'));
   const fmtDate = ts => (ts ? new Date(ts).toLocaleString(I18N.locale(), { dateStyle: 'medium', timeStyle: 'short' }) : '—');
+  /** 3 725 000 ms -> "1 h 2 min" */
+  function fmtDuration(ms) {
+    if (!Number(ms)) return '—';
+    const min = Math.floor((Number(ms) || 0) / 60000);
+    if (min < 1) return t('< 1 min');
+    const h = Math.floor(min / 60), m = min % 60;
+    return h ? t('{0} h {1} min', h, m) : t('{0} min', m);
+  }
   function timeAgo(ts) {
     if (!ts) return t('Never');
     const s = Math.max(0, (Date.now() - new Date(ts).getTime()) / 1000);
@@ -213,7 +221,7 @@
       case 'shots': renderChips(); if (entering) loadShots(); break;
       case 'servers': renderServers(); if (entering) refreshStatuses(S.servers); break;
       case 'skins': if (entering) enterSkins(); break;
-      case 'settings': renderSettings(); break;
+      case 'settings': renderSettings(); loadPerf(); break;
       case 'admin': if (entering) loadAdmin(); else renderAdmin(); break;
     }
     if (page !== 'skins') pauseSkinViewer();
@@ -408,7 +416,7 @@
     renderTitlebar();
   }
 
-  async function play(serverId = null, version = selected()) {
+  async function play(serverId = null, version = selected(), address = null) {
     if (isBusy()) return;
     if (!S.account) { login($('#playBtn')); return; }
     if (mySession()) return;
@@ -416,7 +424,7 @@
     S.progress = { stage: 'auth', label: 'Checking your account', percent: null };
     renderPlay();
     try {
-      await call(api.launch.start(version, serverId));
+      await call(api.launch.start(version, serverId, address));
     } catch (e) {
       toast('error', e.message, [{ label: t('Open console'), run: () => setConsole(true) }]);
       S.progress = { stage: 'idle' };
@@ -496,7 +504,7 @@
       <div class="stats">
         <div class="stat"><span>${esc(t('MODS'))}</span><b>${info.modCount}</b></div>
         <div class="stat"><span>${esc(t('PLAYED'))}</span><b style="font-size:13px">${esc(timeAgo(info.lastPlayed))}</b></div>
-        <div class="stat"><span>${esc(t('STATUS'))}</span><b style="font-size:13px">${esc(info.installed ? t('Ready') : t('Not downloaded'))}</b></div>
+        <div class="stat" title="${esc(t('{0} sessions · longest {1}', info.sessions || 0, fmtDuration(info.longest)))}"><span>${esc(t('PLAYTIME'))}</span><b style="font-size:13px">${esc(fmtDuration(info.playtime))}</b></div>
       </div>
       <div class="row-btns">
         <button class="btn small ghost" data-open="instance">${icon('folder')}${esc(t('Folder'))}</button>
@@ -551,6 +559,7 @@
       <div class="row-btns">
         <button class="btn ghost" data-x="console">${icon('terminal')}${esc(t('Console'))}</button>
         ${a.report ? `<button class="btn ghost" data-x="reports">${icon('folder')}${esc(t('Crash reports'))}</button>` : ''}
+        ${S.crashReports ? `<button class="btn ghost" data-x="send" ${a.sent ? 'disabled' : ''} title="${esc(t('Anonymous: versions, mods and the crash report excerpt -- no name, no IP.'))}">${icon('upload')}${esc(a.sent ? t('Report sent') : t('Send report to Vortex'))}</button>` : ''}
         <span class="grow"></span>
         <button class="btn" data-x="close">${esc(t('Close'))}</button>
       </div>`, { wide: true });
@@ -560,6 +569,10 @@
         if (x.dataset.x === 'console') { close(); setConsole(true); }
         if (x.dataset.x === 'reports') call(api.open('crashes', a.version)).catch(fail);
         if (x.dataset.x === 'close') close();
+        if (x.dataset.x === 'send') {
+          await busy(x, async () => { await call(api.crash.report()); a.sent = true; toast('success', t('Thanks! The report was sent.')); });
+          x.disabled = true;
+        }
         return;
       }
       const b = e.target.closest('[data-f]');
@@ -1420,6 +1433,7 @@
         </div>
         <div class="item-actions">
           <button class="btn small" data-join="${esc(s.id)}">${icon('play')}${esc(t('Join'))}</button>
+          <button class="icon-btn" data-invite="${esc(s.address)}" title="${esc(t('Copy invite link'))}">${icon('copy')}</button>
           ${s.official ? '' : `<button class="icon-btn" data-sremove title="${esc(t('Remove'))}">${icon('trash')}</button>`}
         </div>
       </div>`;
@@ -1433,7 +1447,18 @@
     }));
   }
   $('#serversRefresh').onclick = e => busy(e.currentTarget, () => refreshStatuses(S.servers, true));
+  // Einladungslink: oeffnet den Launcher und verbindet direkt (vortex://join/...).
+  // Discord macht nur http(s)-Links klickbar -- deshalb eine kleine Webseite,
+  // die an den Launcher weiterleitet (docs/join.html im Launcher-Repo).
+  const INVITE_BASE = 'https://marcinator31.github.io/Vortex-Launcher/join.html';
+  const inviteLink = addr => `${INVITE_BASE}?s=${encodeURIComponent(addr)}`;
   $('#serverList').addEventListener('click', async e => {
+    const inv = e.target.closest('[data-invite]');
+    if (inv) {
+      try { await navigator.clipboard.writeText(inviteLink(inv.dataset.invite)); toast('success', t('Invite link copied — paste it in Discord.')); }
+      catch (err) { fail(err); }
+      return;
+    }
     const b = e.target.closest('[data-sremove]');
     if (!b) return;
     const s = S.servers.find(x => x.id === b.closest('.server').dataset.id);
@@ -1472,6 +1497,41 @@
     ram.style.setProperty('--p', `${p}%`);
     $('#setRamOut').textContent = fmtGb(Number(ram.value));
   }
+  // Leistungs-Check (Einstellungen)
+  async function loadPerf() {
+    const body = $('#perfBody');
+    const v = selected();
+    try {
+      const d = await call(api.perf.info(v));
+      const sys = d.system, mc = d.minecraft, r = d.lastRound;
+      const total = (S.versions || []).reduce((n, x) => n + (x.playtime || 0), 0);
+      const gpu = sys.gpus.length ? sys.gpus.map(g => `${esc(g.name)}${g.active && sys.gpus.length > 1 ? ` <em>(${esc(t('in use'))})</em>` : ''}`).join('<br>') : esc(t('unknown'));
+      body.innerHTML = `
+        <div class="perf-grid">
+          <div><span>${esc(t('MEMORY'))}</span><b>${(sys.ramMb / 1024).toFixed(1)} GB</b><small>${esc(t('{0} GB for Minecraft', (mc.ramMb / 1024).toFixed(1)))}</small></div>
+          <div><span>CPU</span><b title="${esc(sys.cpu)}">${esc(sys.cpu.replace(/\(R\)|\(TM\)|CPU|@.*$/gi, '').trim())}</b><small>${esc(t('{0} threads', sys.cores))}</small></div>
+          <div><span>${esc(t('GRAPHICS'))}</span><b style="font-size:12.5px">${gpu}</b></div>
+          <div><span>${esc(t('LAST ROUND'))}</span>${r ? `<b>${r.avgFps} FPS</b><small>${esc(t('worst 1 %: {0} FPS · {1} min', r.lowFps, r.minutes))}</small>` : `<b>—</b><small>${esc(t('Play a round with Vortex 4.7.1+'))}</small>`}</div>
+          <div><span>${esc(t('PLAYTIME'))}</span><b>${esc(fmtDuration(total))}</b><small>${esc(t('all versions'))}</small></div>
+        </div>
+        <div class="perf-tips">${d.tips.map((tip, i) => `
+          <div class="finding ${tip.severity === 'ok' ? 'ok' : tip.severity === 'warn' ? 'warn' : ''}">${icon(tip.severity === 'ok' ? 'check' : tip.severity === 'warn' ? 'alert' : 'info')}
+            <div><p>${esc(tr(tip.text))}</p>${tip.action ? `<div class="row-btns"><button class="btn small" data-perf="${i}">${esc(tr(tip.action.label))}</button></div>` : ''}</div></div>`).join('')}</div>`;
+      body.onclick = async e => {
+        const b = e.target.closest('[data-perf]');
+        if (!b) return;
+        const a = d.tips[+b.dataset.perf].action;
+        await busy(b, async () => {
+          if (a.type === 'ram') { await saveSettings({ memoryMax: a.value }); renderSettings(); toast('success', t('Memory set to {0} MB.', a.value)); }
+          if (a.type === 'performance') { const res = await call(api.mods.performance(v)); toast('success', t('{0} performance mod(s) installed.', (res.installed || []).length)); }
+          if (a.type === 'renderDistance') { await call(api.perf.renderDistance(v, a.value)); toast('success', t('Render distance set to {0}.', a.value)); }
+        });
+        loadPerf();
+      };
+    } catch (e) { body.innerHTML = `<p class="muted">${esc(tr(e.message))}</p>`; }
+  }
+  $('#perfReload').onclick = e => busy(e.currentTarget, loadPerf);
+
   function renderSettings() {
     const c = S.settings;
     ram.max = String(Math.max(2048, Math.min(16384, Math.floor((S.system.maxAllowedMb || 8192) / 256) * 256)));
@@ -1486,6 +1546,8 @@
     $('#setBetaRow').hidden = !(S.betaAllowed || S.adminVisible);
     $('#setBeta').checked = Boolean(c.betaChannel);
     $('#setConsoleCrash').checked = c.showConsoleOnCrash !== false;
+    $('#setCrashRow').hidden = !S.crashReports;
+    $('#setAutoCrash').checked = Boolean(c.autoCrashReport);
     $('#setAutoBackup').checked = c.autoBackup !== false;
     $('#setAutoUpdate').checked = Boolean(c.autoUpdateMods);
     $('#setDiscord').checked = S.discordAvailable && c.discord !== false;
@@ -1512,6 +1574,7 @@
   $('#setFullscreen').onchange = e => saveSettings({ fullscreen: e.target.checked }).then(renderSettings);
   $('#setJvm').onchange = e => saveSettings({ jvmArgs: e.target.value.trim() });
   $('#setConsoleCrash').onchange = e => saveSettings({ showConsoleOnCrash: e.target.checked });
+  $('#setAutoCrash').onchange = e => saveSettings({ autoCrashReport: e.target.checked });
   $('#setAutoBackup').onchange = e => saveSettings({ autoBackup: e.target.checked });
   $('#setAutoUpdate').onchange = e => saveSettings({ autoUpdateMods: e.target.checked });
   $('#setDiscord').onchange = e => saveSettings({ discord: e.target.checked });
@@ -1848,6 +1911,16 @@
   // -----------------------------------------------------------------------
   api.on.log(addLines);
   // "Was ist neu": nach einem Client-/Addon-Update einmal zeigen, was sich geaendert hat.
+  // Einladungslink geoeffnet: nachfragen, dann starten und verbinden
+  async function handleJoin(j) {
+    if (!j || !j.address) return;
+    showPage('home');
+    const version = j.version && S.versions.some(x => x.version === j.version) ? j.version : selected();
+    if (!(await confirmDialog({ title: t('Join {0}?', j.address), text: t('Minecraft {0} starts and connects to the server right away.', version), ok: t('Play') }))) return;
+    play(null, version, j.address);
+  }
+  api.on.join(handleJoin);
+
   api.on.whatsnew(list => {
     if (!Array.isArray(list) || !list.length) return;
     const noteLines = n => String(n || '').split(/\r?\n/).map(l => l.replace(/^\s*[-*+]\s+/, '').trim()).filter(Boolean).slice(0, 12);
@@ -1875,6 +1948,7 @@
   api.on.crash(c => {
     if (!c) return;
     const a = c.analysis || { version: c.version, code: c.code, findings: [], report: null };
+    if (c.reported) a.sent = true;
     S.lastCrash = a;
     renderCrashBanner();
     if (S.settings.showConsoleOnCrash !== false) showCrash(a);
@@ -1913,7 +1987,7 @@
       Object.assign(S, {
         appVersion: st.appVersion, settings: st.settings, system: st.system, account: st.account, accounts: st.accounts || [],
         versions: st.versions || [], servers: st.servers || [], sessions: st.sessions || [], update: st.update || S.update,
-        dataRoot: st.dataRoot, website: st.website, adminVisible: st.adminVisible, betaAllowed: Boolean(st.betaAllowed), discordAvailable: st.discordAvailable,
+        dataRoot: st.dataRoot, website: st.website, adminVisible: st.adminVisible, betaAllowed: Boolean(st.betaAllowed), crashReports: Boolean(st.crashReports), pendingJoin: st.pendingJoin || null, discordAvailable: st.discordAvailable,
         lastCrash: st.lastCrash || null
       });
       if (st.launching) S.progress = { stage: 'prepare', label: 'Starting Minecraft…', percent: null };
@@ -1926,6 +2000,7 @@
     document.documentElement.lang = I18N.lang();
     $('#navAdmin').hidden = !S.adminVisible;
     S.contentVersion = selected();
+    if (S.pendingJoin) setTimeout(() => handleJoin(S.pendingJoin), 600);
     renderAccount();
     renderHome();
     renderSettings();

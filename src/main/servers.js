@@ -81,4 +81,4 @@ async function status(id, force = false) {
   try { return await task; } finally { pending.delete(s.id); }
 }
 
-module.exports = { list, add, remove, status, byId, OFFICIAL };
+module.exports = { list, add, remove, status, byId, OFFICIAL, normalizeAddress };

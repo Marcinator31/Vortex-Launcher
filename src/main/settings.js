@@ -26,6 +26,7 @@ const DEFAULTS = Object.freeze({
   includeAddon: true,
   betaChannel: false,             // Beta-Updates von Client/Addon (nur Admins/Tester)
   showConsoleOnCrash: true,
+  autoCrashReport: false,         // Absturzberichte ohne Nachfrage senden (nur wenn eingerichtet)
   autoBackup: true,               // Welten sichern, bevor aktualisierte Mods/Vortex-Dateien starten
   autoUpdateMods: false,          // Mod-Updates beim Start automatisch einspielen
   discord: true,                  // Discord-Anzeige (wenn in config.js eingerichtet)
@@ -47,6 +48,7 @@ function normalize(raw = {}) {
   s.height = clampInt(s.height, 480, 4320, DEFAULTS.height);
   s.fullscreen = Boolean(s.fullscreen);
   s.includeAddon = Boolean(s.includeAddon);
+  s.autoCrashReport = Boolean(s.autoCrashReport);
   s.betaChannel = Boolean(s.betaChannel);
   s.showConsoleOnCrash = Boolean(s.showConsoleOnCrash);
   s.autoBackup = Boolean(s.autoBackup);

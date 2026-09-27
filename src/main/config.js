@@ -36,6 +36,15 @@ module.exports = Object.freeze({
    */
   discordClientId: '1538299202407506022',
 
+  /**
+   * Absturzberichte: Discord-Webhook-URL (Kanal -> Integrationen -> Webhooks
+   * -> Neuer Webhook -> URL kopieren). Leer = Funktion aus.
+   * Spieler senden nur mit Zustimmung und anonym (siehe crashreport.js).
+   * Achtung: die URL steht in jeder EXE -- nimm einen eigenen Kanal nur fuer
+   * Berichte. Wird er zugemuellt: Webhook loeschen, neuen eintragen.
+   */
+  crashWebhook: '',
+
   website: 'https://vortex-client.onrender.com',
   officialServer: { name: 'VortexPvP', address: 'mc.vortexpvp.eu' }
 });

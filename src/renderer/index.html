@@ -351,6 +351,10 @@
     <section class="page" id="page-settings">
       <div class="page-head"><div><p class="eyebrow">LAUNCHER</p><h2>Settings</h2><p class="muted">Changes are saved immediately.</p></div></div>
       <div class="settings">
+        <section class="card set-card perf-card" id="perfCard">
+          <h3><svg><use href="#i-bolt"/></svg>Performance check<span class="grow"></span><button class="btn small ghost" id="perfReload"><svg><use href="#i-refresh"/></svg>Check again</button></h3>
+          <div id="perfBody"><div class="skeleton"></div></div>
+        </section>
         <section class="card set-card">
           <h3><svg><use href="#i-memory"/></svg>Game</h3>
           <div class="set-row">
@@ -426,6 +430,10 @@
           <div class="set-row">
             <div><strong>Open the crash analysis after a crash</strong><p>Explains what went wrong right away.</p></div>
             <label class="switch"><input type="checkbox" id="setConsoleCrash" /><i></i></label>
+          </div>
+          <div class="set-row" id="setCrashRow" hidden>
+            <div><strong>Send crash reports automatically</strong><p>Anonymous: versions, mods and the crash report excerpt — no name, no IP. Helps to fix bugs faster.</p></div>
+            <label class="switch"><input type="checkbox" id="setAutoCrash" /><i></i></label>
           </div>
           <div class="set-row">
             <div><strong>Files</strong><p id="dataPath">Launcher data</p></div>

@@ -35,7 +35,7 @@ contextBridge.exposeInMainWorld('vortex', {
     repair: v => call('versions:repair', v)
   },
   launch: {
-    start: (version, serverId) => call('launch:start', version, serverId || null),
+    start: (version, serverId, address) => call('launch:start', version, serverId || null, address || null),
     stop: id => call('launch:stop', id)
   },
   mods: {
@@ -106,6 +106,11 @@ contextBridge.exposeInMainWorld('vortex', {
     pickJava: () => call('settings:pickJava'),
     inspectJava: p => call('settings:inspectJava', p)
   },
+  crash: { report: () => call('crash:report') },
+  perf: {
+    info: v => call('perf:info', v),
+    renderDistance: (v, n) => call('perf:renderDistance', v, n)
+  },
   admin: {
     status: () => call('admin:status'),
     signIn: token => call('admin:signIn', token),
@@ -139,6 +144,7 @@ contextBridge.exposeInMainWorld('vortex', {
     accounts: on('accounts'),
     versions: on('versions'),
     update: on('update-state'),
-    whatsnew: on('whatsnew')
+    whatsnew: on('whatsnew'),
+    join: on('join')
   }
 });

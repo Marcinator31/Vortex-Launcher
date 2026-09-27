@@ -19,6 +19,8 @@ const java = require('./java');
 const updater = require('./updater');
 const config = require('./config');
 const vortexfiles = require('./vortexfiles');
+const perf = require('./perf');
+const crashreport = require('./crashreport');
 const admin = require('./admin');
 const skins = require('./skins');
 const media = require('./media');
@@ -28,13 +30,35 @@ const news = require('./news');
 
 const { paths, log, notify } = core;
 
+// ---------------------------------------------------------------------------
+// Einladungslinks: vortex://join/<adresse>[?v=<mc-version>]
+// Windows startet den Launcher mit dem Link als Argument -- laeuft er schon,
+// kommt der Link ueber "second-instance" beim laufenden Launcher an.
+// ---------------------------------------------------------------------------
+let pendingJoin = null;
+function parseJoin(argv) {
+  const url = (argv || []).find(a => /^vortex:\/\//i.test(String(a)));
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    if (u.hostname !== 'join') return null;
+    const address = servers.normalizeAddress(decodeURIComponent(u.pathname.replace(/^\/+|\/+$/g, '')));
+    if (!address) return null;
+    const v = u.searchParams.get('v');
+    return { address, version: v && /^\d+\.\d+(\.\d+)?$/.test(v) ? v : null };
+  } catch (_) { return null; }
+}
+
 // Nur ein Launcher gleichzeitig -- ein zweiter Start holt das Fenster nach vorn.
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
+  pendingJoin = parseJoin(process.argv);
+  app.on('second-instance', (_event, argv) => {
     const w = core.getMainWindow();
     if (w) { w.show(); if (w.isMinimized()) w.restore(); w.focus(); }
+    const j = parseJoin(argv);
+    if (j) core.send('join', j);
   });
 }
 
@@ -145,6 +169,8 @@ function fullState() {
     dataRoot: paths.dataRoot,
     adminVisible: adminVisible(),
     betaAllowed: betaAllowed(),
+    crashReports: crashreport.enabled(),
+    pendingJoin: (() => { const j = pendingJoin; pendingJoin = null; return j; })(),
     discordAvailable: discord.available(),
     website: config.website,
     lastCrash: launch.lastCrash()
@@ -177,7 +203,7 @@ function registerIpc() {
   handle('versions:repair', async v => { const r = await instances.prepare(v); notify('success', `Minecraft ${r.version} checked: Fabric ${r.loaderVersion}, ${r.copied} file(s) updated.`); return { versions: versionsOverview() }; });
 
   // Spielen
-  handle('launch:start', async (version, serverId) => launch.start({ version, serverId }));
+  handle('launch:start', async (version, serverId, address) => launch.start({ version, serverId, address }));
   handle('launch:stop', id => ({ stopped: launch.stop(id) }));
 
   // Mods
@@ -305,6 +331,16 @@ function registerIpc() {
   handle('mods:applyUpdates', (v, files) => modrinth.applyUpdates(v, Array.isArray(files) ? files : null));
   handle('mods:performance', v => modrinth.installPerformancePack(v));
 
+  // Absturzbericht an den Besitzer (nur auf Knopfdruck oder mit Einstellung)
+  handle('crash:report', () => crashreport.send(launch.lastCrash()));
+
+  // Leistungs-Check
+  handle('perf:info', v => perf.info(v));
+  handle('perf:renderDistance', (v, n) => {
+    if (launch.sessionList().some(x => x.version === v)) throw new Error('Close Minecraft first -- it overwrites the setting when it quits.');
+    return perf.setRenderDistance(v, n);
+  });
+
   // Shader
   handle('shaders:list', v => media.listShaders(v));
   handle('shaders:remove', (v, f) => media.removeShader(v, f));
@@ -391,6 +427,11 @@ app.whenReady().then(() => {
   core.ensureDir(paths.dataRoot);
   accounts.load();
   updater.setup();
+  // vortex:// gehoert zu uns (der Installer traegt es auch ein; so klappt es auch mit der Portable-EXE)
+  try {
+    if (process.defaultApp && process.argv[1]) app.setAsDefaultProtocolClient('vortex', process.execPath, [path.resolve(process.argv[1])]);
+    else app.setAsDefaultProtocolClient('vortex');
+  } catch (e) { log(`vortex:// could not be registered: ${e.message}`, 'warn'); }
   registerIpc();
   createWindow();
   log(`Vortex Client Launcher ${app.getVersion()} started.`);

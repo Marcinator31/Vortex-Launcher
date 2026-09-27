@@ -292,6 +292,21 @@ function markPlayed(version) {
   writeJson(metaFile(), meta);
 }
 
+/**
+ * Spielzeit: nach jeder Sitzung die Dauer dazuzaehlen. Sitzungen ueber
+ * 24 Stunden (vergessenes Fenster ueber Nacht) zaehlen hoechstens 24 h.
+ */
+function addPlaytime(version, ms) {
+  const dauer = Math.max(0, Math.min(Number(ms) || 0, 24 * 3600 * 1000));
+  if (dauer < 5000) return;
+  const meta = loadJson(metaFile(), {});
+  const e = meta[version] || (meta[version] = {});
+  e.playtime = (Number(e.playtime) || 0) + dauer;
+  e.sessions = (Number(e.sessions) || 0) + 1;
+  e.longest = Math.max(Number(e.longest) || 0, dauer);
+  writeJson(metaFile(), meta);
+}
+
 /** Mods/Vortex-Dateien wurden seit dem letzten Start geaendert (fuer Auto-Backup). */
 function markChanged(version) {
   const meta = loadJson(metaFile(), {});
@@ -320,7 +335,10 @@ function summary(version) {
     installed: isInstalled(version),
     modCount: enabled,
     disabledCount: disabled,
-    lastPlayed: meta.lastPlayed || null
+    lastPlayed: meta.lastPlayed || null,
+    playtime: Number(meta.playtime) || 0,
+    sessions: Number(meta.sessions) || 0,
+    longest: Number(meta.longest) || 0
   };
 }
 
@@ -394,7 +412,7 @@ function modsWithIds(version) {
   try { files = fs.readdirSync(dir).filter(n => /\.jar(\.disabled)?$/i.test(n)); } catch (_) {}
   return files.map(file => {
     const info = readModInfo(path.join(dir, file)) || {};
-    return { file, path: path.join(dir, file), enabled: !/\.disabled$/i.test(file), id: info.id || '', name: info.name || file, version: info.version || '', provides: info.provides || [], depends: info.depends || [] };
+    return { file, path: path.join(dir, file), enabled: !/\.disabled$/i.test(file), id: info.id || '', name: info.name || file, version: info.version || '', provides: info.provides || [], depends: info.depends || [], breaks: info.breaks || {}, nested: info.nested || [] };
   });
 }
 
@@ -491,5 +509,5 @@ module.exports = {
   bundleInfo, activeBundle, syncBundled, ensureFabric, prepare, maintainAll, summary, markPlayed,
   listMods, toggleMod, removeMod, importMods, projectMap, saveProjectMap, listPacks, removePack,
   isAddonJar, isCoreJar, bundleEntries, packagedEntries, packagedVersions, hasFabricApi, isInstalled,
-  modsWithIds, markChanged, consumeChanged, cachedFabricProfile
+  modsWithIds, markChanged, consumeChanged, cachedFabricProfile, addPlaytime
 };

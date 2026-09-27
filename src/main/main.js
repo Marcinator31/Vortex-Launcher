@@ -145,6 +145,9 @@ function registerIpc() {
   ipcMain.on('win:minimize', () => core.getMainWindow()?.minimize());
   ipcMain.on('win:maximize', () => { const w = core.getMainWindow(); if (w) w.isMaximized() ? w.unmaximize() : w.maximize(); });
   ipcMain.on('win:close', () => core.getMainWindow()?.close());
+  // Oberflaeche neu laden (Sprachwechsel). location.reload() im Fenster wuerde
+  // der Navigationsschutz (will-navigate) blockieren.
+  ipcMain.on('win:reload', () => core.getMainWindow()?.webContents.reload());
 
   handle('state', () => fullState());
 

@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('vortex', {
     minimize: () => ipcRenderer.send('win:minimize'),
     maximize: () => ipcRenderer.send('win:maximize'),
     close: () => ipcRenderer.send('win:close'),
+    reload: () => ipcRenderer.send('win:reload'),
     onState: on('window-state')
   },
   /** Pfad einer per Drag & Drop abgelegten Datei (fuer Jars/Skins/Modpacks). */

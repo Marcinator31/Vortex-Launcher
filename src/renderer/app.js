@@ -1526,7 +1526,7 @@
   $('#setLanguage').onclick = async e => {
     const b = e.target.closest('button[data-value]');
     if (!b || b.dataset.value === S.settings.language) return;
-    if (await saveSettings({ language: b.dataset.value })) location.reload();
+    if (await saveSettings({ language: b.dataset.value })) api.window.reload();
   };
   $('#javaPick').onclick = e => busy(e.currentTarget, async () => {
     const r = await call(api.settings.pickJava());

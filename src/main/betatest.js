@@ -120,8 +120,11 @@ async function rebuild() {
       if (packaged && (!base || vortexfiles.isNewer(packaged, base))) base = packaged;
       if (base && !vortexfiles.isNewer(f.version, base)) continue;          // nichts offen
       let changes = Array.isArray(f.changes) ? f.changes : [];
+      // Ohne freigegebene Version: nur dieselbe Hauptversion (sonst kaemen
+      // Notizen von laengst abgeloesten Fassungen mit, z. B. 2.28 vor 4.x).
+      const major = v => String(vortexfiles.cleanVersion(v)).split('.')[0];
       changes = changes.filter(c => c && c.version && (!base || vortexfiles.isNewer(c.version, base))
-        && !vortexfiles.isNewer(c.version, f.version));
+        && !vortexfiles.isNewer(c.version, f.version) && (base || major(c.version) === major(f.version)));
       if (!changes.length && f.notes) changes = [{ version: f.version, notes: f.notes }];
       for (const c of changes) {
         const version = vortexfiles.cleanVersion(c.version);

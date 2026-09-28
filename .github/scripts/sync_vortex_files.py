@@ -297,7 +297,11 @@ def newest_jars(src, token, im_launcher):
             if mc not in erlaubt:
                 continue
             notes = clean_notes(r.get("body"))
-            alle.setdefault(mc, []).append((version, n, notes))
+            # Fuer die Checkliste die echte Mod-Version (aus dem Tag, z. B.
+            # "v4.9.6+26.2" -> "4.9.6+26.2"), nicht den Dateinamen.
+            tm = re.search(r"\d+\.\d+(?:\.\d+)?", str(r.get("tag_name") or ""))
+            mod_version = f"{tm.group(0)}+{mc}" if tm else version
+            alle.setdefault(mc, []).append((mod_version, n, notes))
             if mc not in best or version_key(version) > version_key(best[mc][0]):
                 best[mc] = (version, n, a["id"], notes)
     for mc in alle:

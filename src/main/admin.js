@@ -305,4 +305,4 @@ async function deleteNews(id) {
   return { news: manifest.news };
 }
 
-module.exports = { status, signIn, signOut, overview, inspectJar, publish, unpublish, promote, postNews, deleteNews, hasToken: () => Boolean(readToken()) };
+module.exports = { status, signIn, signOut, overview, inspectJar, publish, unpublish, promote, postNews, deleteNews, hasToken: () => Boolean(readToken()), gh };

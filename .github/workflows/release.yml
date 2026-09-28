@@ -18,6 +18,8 @@ on:
       # Die automatische Veroeffentlichung von Client/Addon ist kein Launcher-Update
       - '.github/scripts/**'
       - '.github/workflows/sync-vortex-files.yml'
+      # Fehlerberichte aus der Beta-Checkliste sind kein Launcher-Update
+      - 'beta-reports/**'
       # Einladungsseite (GitHub Pages) ist kein Launcher-Update
       - 'docs/**'
       # Freunde-Server laeuft woanders (Render/VPS) -- kein Launcher-Update

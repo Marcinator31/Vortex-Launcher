@@ -66,7 +66,8 @@
     discover: { mods: newDiscover(), packs: newDiscover(), shaders: newDiscover() },
     news: null, lastCrash: null, worlds: [], openBackups: new Set(), shots: [],
     skins: { profile: null, library: [], preview: null, loaded: false },
-    admin: { status: null, overview: null, staged: [], busy: false }
+    admin: { status: null, overview: null, staged: [], busy: false },
+    beta: null, betaOnlyOpen: false
   };
   const selected = () => S.settings.selectedVersion;
   const versionInfo = v => S.versions.find(x => x.version === v) || null;
@@ -1886,6 +1887,7 @@
       S.admin.status = await call(api.admin.status());
       if (S.admin.status.signedIn && S.admin.status.canWrite) S.admin.overview = await call(api.admin.overview());
     } catch (e) { S.admin.error = e.message; }
+    try { S.beta = await call(api.betatest.rebuild()); } catch (_) { try { S.beta = await call(api.betatest.view()); } catch (__) {} }
     S.admin.loading = false;
     renderAdmin();
   }
@@ -1938,6 +1940,7 @@
           <button class="btn small ghost" id="adminSignOut">${esc(t('Sign out'))}</button>
         </div>
         ${st.canWrite ? `
+        ${betaCardHtml()}
         <section class="card">
           <h3 style="margin-bottom:12px">${icon('upload')}${esc(t('Publish new files'))}</h3>
           <div class="dropzone" id="adminDrop">${icon('upload')}<strong>${esc(t('Drop Vortex jars here'))}</strong><span>${esc(t('Client, addon or Fabric API — the launcher reads the mod ID and version from the jar.'))}</span>
@@ -1995,7 +1998,102 @@
     };
   }
 
+  // -----------------------------------------------------------------------
+  // Beta-Test-Checkliste (Admin-Bereich)
+  // -----------------------------------------------------------------------
+  function betaCardHtml() {
+    const B = S.beta;
+    if (!B) return '';
+    const pct = B.total ? Math.round(B.done * 100 / B.total) : 100;
+    const kindCls = k => (k === 'client' ? 'vortex' : k === 'addon' ? 'addon' : 'bundled');
+    const repChip = r => {
+      const st = r.status === 'resolved' ? ['ok', t('Fixed')] : r.status === 'sent' ? ['sent', t('Sent')] : r.error ? ['err', t('Not sent')] : ['wait', t('Waiting')];
+      return `<div class="bt-rep"><span class="bt-chip ${st[0]}">${esc(st[1])}</span><span class="bt-rep-text">${esc(r.text)}</span>
+        ${r.url ? `<button class="btn small ghost" data-external="${esc(r.url)}">${icon('external')}GitHub</button>` : ''}
+        ${r.status !== 'resolved' ? `<button class="btn small ghost" data-bt-resolve="${esc(r.id)}">${esc(t('Mark fixed'))}</button>` : ''}
+        ${r.error && r.status === 'pending' ? `<span class="muted small" title="${esc(r.error)}">${esc(tr(r.error)).slice(0, 80)}</span>` : ''}</div>`;
+    };
+    const groups = B.groups.map(g => {
+      const items = g.items.filter(i => !S.betaOnlyOpen || !i.checked || i.reports.some(r => r.status !== 'resolved'));
+      if (!items.length) return '';
+      return `<div class="bt-group"><div class="bt-ghead"><span class="src ${kindCls(g.kind)}">${esc(g.kind.toUpperCase())}</span><strong>${esc(g.component)} ${esc(g.version)}</strong>${g.heading ? `<span class="muted">· ${esc(g.heading)}</span>` : ''}</div>
+        ${items.map(i => `<div class="bt-item ${i.checked ? 'done' : ''} ${i.reports.some(r => r.status !== 'resolved') ? 'bad' : ''}">
+          <label><input type="checkbox" data-bt-check="${esc(i.id)}" ${i.checked ? 'checked' : ''}/><span>${esc(i.text)}</span></label>
+          <button class="btn small ghost" data-bt-report="${esc(i.id)}" title="${esc(t('Report a bug'))}">${icon('alert')}${esc(t('Bug'))}</button>
+          ${i.reports.length ? `<div class="bt-reps">${i.reports.map(repChip).join('')}</div>` : ''}</div>`).join('')}</div>`;
+    }).join('');
+    return `<section class="card bt-card" id="betaCard">
+      <div class="bt-head"><h3>${icon('check')}${esc(t('Beta test'))}</h3>
+        <span class="bt-count"><b>${B.done}</b> / ${B.total}</span>
+        <div class="bt-bar"><i style="width:${pct}%"></i></div>
+        <label class="bt-filter"><input type="checkbox" data-bt-filter ${S.betaOnlyOpen ? 'checked' : ''}/>${esc(t('Only open'))}</label>
+        <button class="btn small ghost" data-bt-reload>${icon('refresh')}${esc(t('Reload'))}</button>
+        <button class="btn small" data-bt-release ${B.complete && B.total ? '' : 'disabled'} title="${esc(B.complete ? '' : t('Check every item and resolve open bug reports first.'))}">${icon('upload')}${esc(t('Release beta to everyone'))}</button>
+      </div>
+      <p class="muted small">${esc(t('All new features of beta builds that are not released yet — also from older beta builds. Check an item once it works in game (also possible in game: right shift → Beta test). If something is broken, report a bug: it is sent to GitHub, where it can be fixed.'))}</p>
+      ${B.openReports ? `<p class="bt-warn">${icon('alert')}${esc(t('{0} open bug report(s) — the beta cannot be released yet.', B.openReports))}</p>` : ''}
+      ${!B.canSend ? `<p class="bt-warn">${icon('info')}${esc(t('Bug reports are sent as soon as you are signed in with your GitHub token.'))}</p>` : ''}
+      ${B.total ? `<div class="bt-list">${groups || `<p class="muted">${esc(t('Everything is checked.'))}</p>`}</div>` : `<p class="muted">${esc(t('No unreleased beta features — nothing to test.'))}</p>`}
+    </section>`;
+  }
+
+  function refreshBetaCard() {
+    const card = $('#betaCard');
+    if (!card) return;
+    const y = $('.bt-list', card)?.scrollTop || 0;
+    card.outerHTML = betaCardHtml();
+    const list = $('#betaCard .bt-list');
+    if (list) list.scrollTop = y;
+  }
+
+  api.on.betatest(v => { S.beta = v; refreshBetaCard(); });
+
+  async function betaClicks(e) {
+    const chk = e.target.closest('[data-bt-check]');
+    if (chk) { S.beta = await call(api.betatest.check(chk.dataset.btCheck, chk.checked)).catch(err => { fail(err); return S.beta; }); refreshBetaCard(); return true; }
+    if (e.target.closest('[data-bt-filter]')) { S.betaOnlyOpen = e.target.closest('[data-bt-filter]').checked; refreshBetaCard(); return true; }
+    const rl = e.target.closest('[data-bt-reload]');
+    if (rl) { await busy(rl, async () => { S.beta = await call(api.betatest.rebuild()); refreshBetaCard(); }); return true; }
+    const rs = e.target.closest('[data-bt-resolve]');
+    if (rs) { S.beta = await call(api.betatest.resolve(rs.dataset.btResolve)); refreshBetaCard(); return true; }
+    const rp = e.target.closest('[data-bt-report]');
+    if (rp) {
+      const id = rp.dataset.btReport;
+      const item = S.beta?.groups.flatMap(g => g.items.map(i => ({ ...i, g }))).find(i => i.id === id);
+      const { el, close } = openModal(`<h3>${icon('alert')}${esc(t('Report a bug'))}</h3>
+        <p class="muted small">${esc(item ? `${item.g.component} ${item.g.version}` : '')}</p><p><b>${esc(item?.text || '')}</b></p>
+        <textarea id="btText" class="bt-text" maxlength="4000" placeholder="${esc(t('What happens? What did you expect? How can it be reproduced?'))}"></textarea>
+        <label class="bt-filter"><input type="checkbox" id="btLog" checked/>${esc(t('Attach error lines from the game log (IP addresses are hidden)'))}</label>
+        <p class="muted small">${esc(t('The report is public on GitHub (the launcher repository is public).'))}</p>
+        <div class="row-btns"><button class="btn ghost" data-c>${esc(t('Cancel'))}</button><button class="btn" data-s>${icon('send')}${esc(t('Send report'))}</button></div>`, { wide: true });
+      $('#btText', el).focus();
+      $('[data-c]', el).onclick = close;
+      $('[data-s]', el).onclick = ev => busy(ev.currentTarget, async () => {
+        const text = $('#btText', el).value.trim();
+        if (!text) { $('#btText', el).focus(); return; }
+        S.beta = await call(api.betatest.report(id, text, $('#btLog', el).checked));
+        close(); refreshBetaCard();
+        toast('success', S.beta.canSend ? t('Bug report is being sent.') : t('Bug report saved — it is sent once you are signed in.'));
+      });
+      return true;
+    }
+    const rel = e.target.closest('[data-bt-release]');
+    if (rel) {
+      const files = (S.admin.overview?.versions || []).flatMap(v => v.files.filter(f => f.promotable).map(f => ({ v: v.version, f })));
+      if (!files.length) { toast('info', t('Nothing to release — the beta is not newer than the released version.')); return true; }
+      if (!(await confirmDialog({ title: t('Release the beta to everyone?'), text: files.map(x => `${x.f.name} ${x.f.beta} (Minecraft ${x.v})`).join(' · '), ok: t('Release') }))) return true;
+      await busy(rel, async () => {
+        for (const x of files) await call(api.admin.promote(x.v, x.f.id));
+        toast('success', t('Released to everyone.'));
+        await loadAdmin();
+      });
+      return true;
+    }
+    return false;
+  }
+
   async function adminClicks(e) {
+    if (e.target.closest('#betaCard') && await betaClicks(e)) return;
     const pr = e.target.closest('[data-promote]');
     if (pr) {
       const [v, id] = pr.dataset.promote.split('|');
@@ -2127,7 +2225,8 @@
 
   api.on.whatsnew(list => {
     if (!Array.isArray(list) || !list.length) return;
-    const noteLines = n => String(n || '').split(/\r?\n/).map(l => l.replace(/^\s*[-*+]\s+/, '').trim()).filter(Boolean).slice(0, 12);
+    // Notizen: "## Ueberschrift", "- Punkt", "> Hinweis" (Format der Client-/Addon-Releases)
+    const noteLines = n => String(n || '').split(/\r?\n/).map(l => l.replace(/^\s*(?:[-*+>]|#{1,6})\s*/, '').trim()).filter(Boolean).slice(0, 20);
     const items = list.map(u => {
       const lines = noteLines(u.notes);
       return `<div class="wn-item"><div class="wn-head"><strong>${esc(u.name)} ${esc(u.newVersion)}</strong>${u.channel === 'beta' ? '<span class="src addon">BETA</span>' : ''}<span class="muted small">Minecraft ${esc(u.version)}</span></div>

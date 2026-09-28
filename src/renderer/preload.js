@@ -137,6 +137,14 @@ contextBridge.exposeInMainWorld('vortex', {
     postNews: (title, body) => call('admin:postNews', title, body),
     deleteNews: id => call('admin:deleteNews', id)
   },
+  betatest: {
+    view: () => call('betatest:view'),
+    rebuild: () => call('betatest:rebuild'),
+    check: (id, value) => call('betatest:check', id, value),
+    report: (id, text, attachLog) => call('betatest:report', id, text, attachLog),
+    resolve: id => call('betatest:resolve', id),
+    send: () => call('betatest:send')
+  },
   vortexRefresh: () => call('vortex:refresh'),
   news: () => call('news:get'),
   lastCrash: () => call('crash:last'),
@@ -162,6 +170,7 @@ contextBridge.exposeInMainWorld('vortex', {
     importProgress: on('import-progress'),
     friends: on('friends'),
     friendsNotify: on('friends-notify'),
-    friendsOpen: on('friends-open')
+    friendsOpen: on('friends-open'),
+    betatest: on('betatest')
   }
 });

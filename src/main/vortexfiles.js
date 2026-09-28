@@ -76,7 +76,7 @@ function validManifest(m) {
       files[id] = {
         file: f.file, version: String(f.version || ''), name: String(f.name || id).slice(0, 80),
         sha256: String(f.sha256).toLowerCase(), size: Number(f.size) || 0, uploadedAt: String(f.uploadedAt || ''),
-        notes: String(f.notes || '').slice(0, 2000),
+        notes: String(f.notes || '').slice(0, 4000),
         channel: f.channel === 'beta' ? 'beta' : 'stable'
       };
     }
@@ -183,5 +183,6 @@ async function refresh(bundledFor, { versionsOnly = null } = {}) {
 module.exports = {
   CORE_IDS, ADDON_IDS, kindOf, cleanVersion, isNewer, safeName,
   manifest, validManifest, versions, entries, refresh, assetUrl, sha256File, setBetaCheck, mergeBeta,
+  betaActive: () => { try { return Boolean(betaCheck()); } catch (_) { return false; } },
   status: () => lastCheck
 };

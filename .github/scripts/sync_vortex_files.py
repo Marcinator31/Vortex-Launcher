@@ -181,7 +181,7 @@ def clean_notes(body):
         if l.startswith("http") and "claude.ai" in l:
             continue
         out.append(l)
-    return "\n".join(out)[:2000]
+    return "\n".join(out)[:4000]
 
 
 def upload(rel, name, data, content_type):
@@ -281,6 +281,7 @@ def newest_jars(src, token, im_launcher):
             if m:
                 erlaubt.add(m.group(1))
     best = {}
+    alle = {}
     for r in rels:
         if r.get("draft"):
             continue
@@ -295,15 +296,53 @@ def newest_jars(src, token, im_launcher):
             mc = m.group(1)
             if mc not in erlaubt:
                 continue
+            notes = clean_notes(r.get("body"))
+            alle.setdefault(mc, []).append((version, n, notes))
             if mc not in best or version_key(version) > version_key(best[mc][0]):
-                best[mc] = (version, n, a["id"], clean_notes(r.get("body")))
-    return best
+                best[mc] = (version, n, a["id"], notes)
+    for mc in alle:
+        alle[mc].sort(key=lambda x: version_key(x[0]), reverse=True)
+    return best, alle
+
+
+def aenderungen_eintragen(alle_quellen):
+    """
+    BETA-CHECKLISTE: zu jeder Beta-Datei die Notizen ALLER Releases bis zu
+    ihrer Version eintragen ("changes", neueste zuerst, hoechstens 25).
+
+    Der Launcher filtert davon alles weg, was schon freigegeben (oder im
+    Launcher mitgeliefert) ist -- uebrig bleiben genau die Neuerungen, die
+    noch niemand ausser den Testern hat, auch aus aelteren Beta-Builds.
+    Die Quelle einer Datei wird am Dateinamen erkannt (= Asset-Name).
+    """
+    rel = release()
+    beta = read_manifest(rel, BETA)
+    geaendert = False
+    for mc, e in beta["versions"].items():
+        for mod_id, f in (e.get("files") or {}).items():
+            liste = None
+            for alle in alle_quellen:
+                kandidaten = alle.get(mc) or []
+                if any(name == f.get("file") for _, name, _ in kandidaten):
+                    liste = kandidaten
+                    break
+            if liste is None:
+                continue
+            changes = [{"version": v, "notes": n} for v, _, n in liste
+                       if n and version_key(v) <= version_key(f.get("version"))][:25]
+            if f.get("changes") != changes:
+                f["changes"] = changes
+                geaendert = True
+    if geaendert:
+        write_manifest(BETA, beta)
+        print("  Beta-Checkliste: Aenderungen im Beta-Manifest aktualisiert.")
 
 
 def main():
     if not TOKEN:
         raise SystemExit("GITHUB_TOKEN fehlt.")
     changed = 0
+    alle_quellen = []
     for src, token_env in SOURCES:
         token = os.environ.get(token_env, "").strip() if token_env else None
         print(f"== {src}")
@@ -313,7 +352,8 @@ def main():
         try:
             rel = release()
             bekannt = set(read_manifest(rel, STABLE)["versions"]) | set(read_manifest(rel, BETA)["versions"])
-            jars = newest_jars(src, token, bekannt)
+            jars, alle = newest_jars(src, token, bekannt)
+            alle_quellen.append(alle)
             if not jars:
                 print("  keine passenden Releases gefunden.")
             for mc, (version, name, asset_id, notes) in sorted(jars.items()):
@@ -324,6 +364,10 @@ def main():
         except Exception as e:                                 # eine Quelle darf die andere nicht blockieren
             print(f"::error::{src}: {e}")
     print(f"Fertig: {changed} Datei(en) neu veroeffentlicht (Kanal: {CHANNEL}).")
+    try:
+        aenderungen_eintragen(alle_quellen)
+    except Exception as e:
+        print(f"::warning::Beta-Checkliste nicht aktualisiert: {e}")
     if (os.environ.get("PROMOTE") or "").strip().lower() in ("1", "true", "yes"):
         print("== Freigabe fuer alle")
         promote()

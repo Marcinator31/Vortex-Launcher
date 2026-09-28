@@ -200,7 +200,9 @@ async function start({ version, serverId = null, address = null }) {
         ...(jre.major >= 22 ? ['--enable-native-access=ALL-UNNAMED'] : []),
         ...(cfg.jvmPreset === 'custom' ? parseArgs(cfg.jvmArgs) : (JVM_PRESETS[cfg.jvmPreset] || [])),
         // Freunde im Spiel: Der Vortex Client verbindet sich mit demselben Server.
-        ...(friendsUrl() ? [`-Dvortex.friends.url=${friendsUrl()}`] : [])
+        ...(friendsUrl() ? [`-Dvortex.friends.url=${friendsUrl()}`] : []),
+        // Beta-Test-Checkliste im Spiel (nur wenn der Beta-Kanal aktiv ist).
+        ...(vortexfiles.betaActive() ? [`-Dvortex.beta.dir=${require('./betatest').dir()}`] : [])
       ]
     };
     if (server) options.quickPlay = { type: 'multiplayer', identifier: server.address };

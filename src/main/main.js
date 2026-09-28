@@ -27,6 +27,7 @@ const music = require('./music');
 protocol.registerSchemesAsPrivileged([{ scheme: 'vxmusic', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true } }]);
 const crashreport = require('./crashreport');
 const admin = require('./admin');
+const betatest = require('./betatest');
 const skins = require('./skins');
 const media = require('./media');
 const mrpack = require('./mrpack');
@@ -159,6 +160,7 @@ async function refreshVortexFiles(quiet = true) {
     }
   }
   if (r.updated.length || !quiet) core.send('versions', versionsOverview());
+  if (vortexfiles.betaActive()) void betatest.rebuild().catch(e => log(`Beta test: ${e.message}`, 'warn'));
   return r;
 }
 
@@ -344,7 +346,19 @@ function registerIpc() {
   handle('admin:inspect', paths_ => ({ jars: (Array.isArray(paths_) ? paths_ : []).slice(0, 20).map(f => { try { return admin.inspectJar(f); } catch (e) { return { path: f, file: path.basename(String(f)), error: e.message }; } }) }));
   handle('admin:publish', async (file, version) => { const r = await admin.publish(file, version); void refreshVortexFiles(false); return r; });
   handle('admin:unpublish', async (version, id) => { await admin.unpublish(version, id); void refreshVortexFiles(false); return {}; });
-  handle('admin:promote', async (version, id) => { const r = await admin.promote(version, id); void refreshVortexFiles(false); return r; });
+  handle('admin:promote', async (version, id) => {
+    // Erst freigeben, wenn die Beta-Checkliste fuer diese Datei komplett ist.
+    try { await betatest.rebuild(); } catch (_) {}
+    if (!betatest.fileComplete(version, id)) throw new Error('The beta checklist is not complete yet: check every item and resolve open bug reports first.');
+    const r = await admin.promote(version, id); void refreshVortexFiles(false); void betatest.rebuild().catch(() => {}); return r;
+  });
+  // Beta-Test-Checkliste
+  handle('betatest:view', () => betatest.view());
+  handle('betatest:rebuild', () => betatest.rebuild());
+  handle('betatest:check', (id, value) => betatest.setChecked(String(id), Boolean(value)));
+  handle('betatest:report', (id, text, attachLog) => betatest.addReport(String(id), String(text || ''), { attachLog: attachLog !== false }));
+  handle('betatest:resolve', id => betatest.resolveReport(String(id)));
+  handle('betatest:send', async () => { await betatest.sendReports(); return betatest.view(); });
   handle('admin:postNews', (title, body) => admin.postNews(title, body));
   handle('admin:deleteNews', id => admin.deleteNews(id));
 
@@ -487,6 +501,12 @@ app.whenReady().then(() => {
     else app.setAsDefaultProtocolClient('vortex');
   } catch (e) { log(`vortex:// could not be registered: ${e.message}`, 'warn'); }
   registerIpc();
+  betatest.init({
+    packagedFor: v => { try { return instances.packagedEntries(v); } catch (_) { return []; } },
+    gh: (method, url, opts) => admin.gh(method, url, opts),
+    hasToken: () => admin.hasToken(),
+    onChange: v => core.send('betatest', v)
+  });
   createWindow();
   log(`Vortex Client Launcher ${app.getVersion()} started.`);
   // Einmalige Wartung im Hintergrund -- NICHT jede Sekunde wie frueher.

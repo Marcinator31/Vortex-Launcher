@@ -40,7 +40,12 @@ let launching = false;
 function sessionList() {
   return [...sessions.values()].map(s => ({ id: s.id, version: s.version, username: s.username, accountId: s.accountId, startedAt: s.startedAt, running: s.running }));
 }
-function publishSessions() { send('sessions', sessionList()); }
+function publishSessions() {
+  send('sessions', sessionList());
+  try { require('./friends').onSessions(sessionList()); } catch (_) {}
+}
+
+function friendsUrl() { try { return require('./friends').gameUrl(); } catch (_) { return ''; } }
 
 function progress(stage, label, percent = null) { send('progress', { stage, label, percent }); }
 
@@ -193,7 +198,9 @@ async function start({ version, serverId = null, address = null }) {
       window: cfg.fullscreen ? { fullscreen: true } : { width: cfg.width, height: cfg.height },
       customArgs: [
         ...(jre.major >= 22 ? ['--enable-native-access=ALL-UNNAMED'] : []),
-        ...(cfg.jvmPreset === 'custom' ? parseArgs(cfg.jvmArgs) : (JVM_PRESETS[cfg.jvmPreset] || []))
+        ...(cfg.jvmPreset === 'custom' ? parseArgs(cfg.jvmArgs) : (JVM_PRESETS[cfg.jvmPreset] || [])),
+        // Freunde im Spiel: Der Vortex Client verbindet sich mit demselben Server.
+        ...(friendsUrl() ? [`-Dvortex.friends.url=${friendsUrl()}`] : [])
       ]
     };
     if (server) options.quickPlay = { type: 'multiplayer', identifier: server.address };

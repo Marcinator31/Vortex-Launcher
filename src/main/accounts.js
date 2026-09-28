@@ -149,7 +149,12 @@ function faceFromSkin(skin) {
 
 async function avatar(id) {
   const a = accounts.find(e => idOf(e) === String(id || ''));
-  const uuid = String(a?.uuid || '').replace(/-/g, '').toLowerCase();
+  return faceByUuid(a?.uuid);
+}
+
+/** Gesicht (8x8, mit Huttschicht) zu einer beliebigen UUID -- auch fuer Freunde. */
+async function faceByUuid(raw) {
+  const uuid = String(raw || '').replace(/-/g, '').toLowerCase();
   if (!/^[a-f0-9]{32}$/.test(uuid)) return null;
   const file = path.join(paths.avatarsRoot, `face-${uuid}.png`);
   const fresh = exists(file) && Date.now() - fs.statSync(file).mtimeMs < 6 * 3600 * 1000;
@@ -188,4 +193,4 @@ function writeFace(uuidRaw, pngBuffer) {
   } catch (_) {}
 }
 
-module.exports = { load, list, current, currentSummary, login, select, remove, freshAuth, refreshAllQuietly, avatar, idOf, writeFace };
+module.exports = { load, list, current, currentSummary, login, select, remove, freshAuth, refreshAllQuietly, avatar, faceByUuid, idOf, writeFace };

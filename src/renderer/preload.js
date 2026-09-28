@@ -107,6 +107,13 @@ contextBridge.exposeInMainWorld('vortex', {
     inspectJava: p => call('settings:inspectJava', p)
   },
   crash: { report: () => call('crash:report') },
+  friends: {
+    status: () => call('friends:status'),
+    req: (op, args) => call('friends:req', op, args || {}),
+    face: uuid => call('friends:face', uuid),
+    reconnect: () => call('friends:reconnect'),
+    syncProfile: () => call('friends:syncProfile')
+  },
   music: { tracks: () => call('music:tracks'), folder: () => call('music:folder') },
   importer: {
     scan: () => call('import:scan'),
@@ -152,6 +159,9 @@ contextBridge.exposeInMainWorld('vortex', {
     update: on('update-state'),
     whatsnew: on('whatsnew'),
     join: on('join'),
-    importProgress: on('import-progress')
+    importProgress: on('import-progress'),
+    friends: on('friends'),
+    friendsNotify: on('friends-notify'),
+    friendsOpen: on('friends-open')
   }
 });

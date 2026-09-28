@@ -32,6 +32,7 @@ const media = require('./media');
 const mrpack = require('./mrpack');
 const discord = require('./discord');
 const news = require('./news');
+const friends = require('./friends');
 
 const { paths, log, notify } = core;
 
@@ -197,9 +198,23 @@ function registerIpc() {
 
   // Konten
   const accountState = () => ({ account: accounts.currentSummary(), accounts: accounts.list(), adminVisible: adminVisible(), betaAllowed: betaAllowed() });
-  handle('account:login', async () => { await accounts.login(); return accountState(); });
-  handle('account:select', id => { accounts.select(id); return accountState(); });
-  handle('account:remove', id => { accounts.remove(id); return accountState(); });
+  handle('account:login', async () => { await accounts.login(); friends.start(); return accountState(); });
+  handle('account:select', id => { accounts.select(id); friends.start(); return accountState(); });
+  handle('account:remove', async id => { if (accounts.current() && accounts.idOf(accounts.current()) === id) await friends.signOut(); accounts.remove(id); friends.start(); return accountState(); });
+
+  // Freunde
+  const FRIEND_OPS = new Set(['state', 'friend.request', 'friend.accept', 'friend.decline', 'friend.cancel', 'friend.remove',
+    'friend.update', 'block', 'unblock', 'settings.set', 'status.set', 'profile.get', 'chat.open', 'chat.history', 'chat.send',
+    'chat.edit', 'chat.delete', 'chat.read', 'chat.typing', 'chat.mute', 'group.create', 'group.add', 'group.kick',
+    'group.leave', 'group.rename', 'invite.send', 'invite.respond', 'join.ask', 'join.check', 'player.lookup']);
+  handle('friends:status', () => ({ status: friends.status(), data: friends.snapshot() }));
+  handle('friends:req', async (op, args) => {
+    if (!FRIEND_OPS.has(String(op))) throw new Error('Unknown request.');
+    return { data: await friends.request(String(op), args && typeof args === 'object' ? args : {}) };
+  });
+  handle('friends:face', async uuid => ({ face: await accounts.faceByUuid(uuid) }));
+  handle('friends:reconnect', () => { friends.reconnect(); return { status: friends.status() }; });
+  handle('friends:syncProfile', () => { friends.syncProfile(); return {}; });
   handle('account:avatar', async id => ({ avatar: await accounts.avatar(id) }));
 
   // Versionen
@@ -477,7 +492,8 @@ app.whenReady().then(() => {
   // Einmalige Wartung im Hintergrund -- NICHT jede Sekunde wie frueher.
   setTimeout(() => {
     try { instances.maintainAll(); } catch (e) { log(`Maintenance: ${e.message}`, 'warn'); }
-    void accounts.refreshAllQuietly().then(() => core.send('accounts', { account: accounts.currentSummary(), accounts: accounts.list(), adminVisible: adminVisible() }));
+    void accounts.refreshAllQuietly().then(() => core.send('accounts', { account: accounts.currentSummary(), accounts: accounts.list(), adminVisible: adminVisible() }))
+      .finally(() => friends.start());
     void refreshVortexFiles().catch(() => {});
     discord.update({ state: 'launcher' });
   }, 1500);

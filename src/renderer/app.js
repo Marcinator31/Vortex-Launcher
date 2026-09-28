@@ -220,6 +220,7 @@
       case 'worlds': renderChips(); if (entering) loadWorlds(); break;
       case 'shots': renderChips(); if (entering) loadShots(); break;
       case 'servers': renderServers(); if (entering) refreshStatuses(S.servers); break;
+      case 'friends': if (entering) loadFriends(); else renderFriends(); break;
       case 'skins': if (entering) enterSkins(); break;
       case 'settings': renderSettings(); loadPerf(); break;
       case 'admin': if (entering) loadAdmin(); else renderAdmin(); break;
@@ -2186,6 +2187,788 @@
   });
 
   // -----------------------------------------------------------------------
+  // Freunde
+  // -----------------------------------------------------------------------
+  const F = {
+    status: { conn: 'off' }, data: null, tab: 'friends', sel: null, search: '',
+    msgs: {}, faces: {}, typing: {}, reply: null, lastTyping: 0, drafts: {}, answered: new Set()
+  };
+  const fReq = async (op, args) => (await call(api.friends.req(op, args))).data;
+  const myUuid = () => F.data?.me?.uuid;
+  const friendBy = uuid => F.data?.friends?.find(f => f.uuid === uuid) || null;
+  const convBy = id => F.data?.convs?.find(c => c.id === id) || null;
+  const dmWith = uuid => F.data?.convs?.find(c => c.kind === 'dm' && c.with === uuid) || null;
+  const fLabel = f => (f?.nickname ? f.nickname : f?.name || '?');
+  const nameOf = uuid => { const f = friendBy(uuid); if (f) return fLabel(f); if (uuid === myUuid()) return F.data.me.name; for (const c of F.data?.convs || []) { const m = c.members.find(x => x.uuid === uuid); if (m) return m.name; } return '?'; };
+
+  function faceHtml(uuid, { big = false, dot = null } = {}) {
+    if (uuid && !(uuid in F.faces)) {
+      F.faces[uuid] = null;
+      api.friends.face(uuid).then(r => { if (r?.ok && r.face) { F.faces[uuid] = r.face; $$(`[data-face="${uuid}"]`).forEach(el => { el.innerHTML = `<img src="${r.face}" alt="" />`; }); } }).catch(() => {});
+    }
+    const src = F.faces[uuid];
+    return `<div class="fr-face ${big ? 'big' : ''}"><span data-face="${esc(uuid)}" style="display:contents">${src ? `<img src="${esc(src)}" alt="" />` : icon('user')}</span>${dot ? `<i class="dot ${dot}"></i>` : ''}</div>`;
+  }
+
+  const dotOf = p => (!p || p.state === 'offline' ? '' : p.mode === 'dnd' ? 'dnd' : p.mode === 'away' ? 'away' : p.state === 'playing' ? 'playing' : 'online');
+
+  function presenceText(p, long = false) {
+    if (!p || p.state === 'offline') return p?.lastSeen ? t('Offline · last seen {0}', timeAgo(p.lastSeen)) : t('Offline');
+    const mode = p.mode === 'dnd' ? `${t('Do not disturb')} · ` : p.mode === 'away' ? `${t('Away')} · ` : '';
+    const a = p.activity;
+    let what;
+    if (!a) what = t('In the launcher');
+    else if (a.mode === 'server') what = t('Playing on {0}', a.serverName && long ? `${a.serverName} (${a.address})` : (a.serverName || a.address));
+    else if (a.mode === 'singleplayer') what = t('Playing singleplayer');
+    else if (a.mode === 'realms') what = t('Playing on Realms');
+    else if (a.mode === 'menu') what = t('In the main menu');
+    else what = t('Playing Minecraft {0}', a.version || '');
+    const since = long && a?.since ? ` · ${t('for {0}', fmtDuration(Date.now() - a.since))}` : '';
+    const ver = long && a?.version && a.mode !== 'game' && a.mode !== 'hidden' ? ` · ${a.version}` : '';
+    return `${mode}${what}${ver}${since}${p.text ? ` · „${p.text}“` : ''}`;
+  }
+
+  function updateFriendsBadge() {
+    const req = F.data?.incoming?.length || 0;
+    const unread = (F.data?.convs || []).filter(c => !c.muted).reduce((n, c) => n + (c.unread || 0), 0);
+    const total = req + unread;
+    const b = $('#friendsBadge');
+    b.hidden = !total; b.textContent = total > 99 ? '99+' : String(total);
+    const rb = $('#frReqBadge'); rb.hidden = !req; rb.textContent = String(req);
+    const cb = $('#frChatsBadge'); cb.hidden = !unread; cb.textContent = unread > 99 ? '99+' : String(unread);
+  }
+
+  // ---- Laden --------------------------------------------------------------
+  async function loadFriends() {
+    try {
+      const r = await call(api.friends.status());
+      F.status = r.status;
+      if (r.data) F.data = r.data;
+    } catch (_) {}
+    renderFriends();
+  }
+
+  function renderFriends() {
+    updateFriendsBadge();
+    if (S.page !== 'friends') return;
+    const st = F.status || {};
+    const off = $('#frOff'), layout = $('#frLayout');
+    const online = st.conn === 'online' && F.data;
+    off.hidden = Boolean(online); layout.hidden = !online;
+    $('#frSettingsBtn').disabled = !online;
+    if (!online) {
+      let body;
+      if (st.conn === 'disabled') body = `${icon('users', 'big')}<h3>${esc(t('Friends are not set up yet'))}</h3><p>${esc(t('The owner of this launcher has to start the friends server first. As soon as it runs, you can add friends here.'))}</p>`;
+      else if (st.conn === 'signedout') body = `${icon('login', 'big')}<h3>${esc(t('Sign in to use friends'))}</h3><p>${esc(t('Friends are linked to your Minecraft account.'))}</p><button class="btn" id="frSignIn">${icon('user')}${esc(t('Sign in with Microsoft'))}</button>`;
+      else if (st.conn === 'connecting' || st.conn === 'off') body = `<div class="spinner"></div><h3>${esc(t('Connecting…'))}</h3><p>${esc(t('Signing in to the friends server with your Minecraft account.'))}</p>`;
+      else body = `${icon('alert', 'big')}<h3>${esc(t('Friends server not reachable'))}</h3><p>${esc(st.error ? tr(st.error) : t('The launcher keeps trying in the background.'))}</p><button class="btn ghost" id="frRetry">${icon('refresh')}${esc(t('Try again'))}</button>`;
+      off.innerHTML = body;
+      $('#frRetry')?.addEventListener('click', () => call(api.friends.reconnect()).then(r => { F.status = r.status; renderFriends(); }).catch(fail));
+      $('#frSignIn')?.addEventListener('click', e => login(e.currentTarget));
+      return;
+    }
+    renderFrMe();
+    renderFrList();
+    renderFrMain();
+  }
+
+  // ---- Ich ----------------------------------------------------------------
+  function renderFrMe() {
+    const me = F.data.me;
+    const mode = me.status?.mode || 'online';
+    const dot = mode === 'invisible' ? '' : mode === 'online' ? 'online' : mode;
+    const el = $('#frMe');
+    if (el.contains(document.activeElement)) return;      // nicht beim Tippen neu bauen
+    el.innerHTML = `${faceHtml(me.uuid, { dot })}
+      <div class="fr-me-txt"><strong>${esc(me.name)}</strong>
+        <div class="fr-me-row"><select id="frMode">${['online', 'away', 'dnd', 'invisible'].map(m => `<option value="${m}" ${m === mode ? 'selected' : ''}>${esc(t({ online: 'Online', away: 'Away', dnd: 'Do not disturb', invisible: 'Invisible' }[m]))}</option>`).join('')}</select>
+        <input id="frStatusText" maxlength="60" placeholder="${esc(t('Status, e.g. Bedwars?'))}" value="${esc(me.status?.text || '')}" /></div></div>`;
+    $('#frMode').onchange = e => fReq('status.set', { mode: e.target.value }).then(r => { me.status = r.status; renderFrMe(); }).catch(fail);
+    const txt = $('#frStatusText');
+    const save = () => { if (txt.value.trim() === (me.status?.text || '')) return; fReq('status.set', { text: txt.value }).then(r => { me.status = r.status; }).catch(fail); };
+    txt.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); txt.blur(); } };
+    txt.onblur = save;
+  }
+
+  // ---- Liste --------------------------------------------------------------
+  function renderFrList() {
+    $$('#frTabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === F.tab));
+    const q = F.search.trim().toLowerCase();
+    const match = (...xs) => !q || xs.some(x => String(x || '').toLowerCase().includes(q));
+    const d = F.data;
+    let html = '';
+    if (F.tab === 'friends') {
+      const list = d.friends.filter(f => match(f.name, f.nickname));
+      const rank = f => (f.presence?.state === 'playing' ? 0 : f.presence?.state === 'online' ? 1 : 2);
+      list.sort((a, b) => rank(a) - rank(b) || (b.favorite - a.favorite) || fLabel(a).localeCompare(fLabel(b)));
+      const groups = [[t('Playing'), list.filter(f => rank(f) === 0)], [t('Online'), list.filter(f => rank(f) === 1)], [t('Offline'), list.filter(f => rank(f) === 2)]];
+      for (const [title, items] of groups) {
+        if (!items.length) continue;
+        html += `<div class="fr-group-h">${esc(title)} — ${items.length}</div>`;
+        for (const f of items) {
+          const c = dmWith(f.uuid);
+          html += `<button class="fr-item ${F.sel?.type === 'friend' && F.sel.id === f.uuid ? 'active' : ''}" data-friend="${esc(f.uuid)}">${faceHtml(f.uuid, { dot: dotOf(f.presence) })}
+            <div class="fr-txt"><div class="fr-name">${f.favorite ? icon('star') : ''}${esc(fLabel(f))}${f.muted ? icon('bell-off') : ''}</div><div class="fr-sub">${esc(presenceText(f.presence))}</div></div>
+            ${c?.unread && !c.muted ? `<span class="fr-unread">${c.unread}</span>` : ''}</button>`;
+        }
+      }
+      if (!d.friends.length) html = `<div class="fr-empty">${icon('users')}<div>${esc(t('No friends yet. Add someone by their Minecraft name above.'))}</div></div>`;
+      else if (!list.length) html = `<div class="fr-empty">${esc(t('Nothing found'))}</div>`;
+    } else if (F.tab === 'chats') {
+      html += `<button class="btn ghost small" id="frNewGroup" style="width:100%;margin:4px 0 8px">${icon('plus')}${esc(t('New group'))}</button>`;
+      const convs = d.convs.filter(c => (c.last || c.kind === 'group') && match(convTitle(c)));
+      for (const c of convs) {
+        const other = c.kind === 'dm' ? c.with : null;
+        const f = other ? friendBy(other) : null;
+        const last = c.last ? (c.last.kind === 'system' ? systemText(c.last) : c.last.deleted ? t('Message deleted') : c.last.kind === 'invite' ? t('Server invite') : `${c.last.sender === myUuid() ? `${t('You')}: ` : c.kind === 'group' ? `${c.last.senderName}: ` : ''}${c.last.body}`) : t('No messages yet');
+        html += `<button class="fr-item ${F.sel?.type === 'conv' && F.sel.id === c.id ? 'active' : ''}" data-conv="${esc(c.id)}">${other ? faceHtml(other, { dot: dotOf(f?.presence) }) : `<div class="fr-face">${icon('users')}</div>`}
+          <div class="fr-txt"><div class="fr-name">${esc(convTitle(c))}${c.muted ? icon('bell-off') : ''}</div><div class="fr-sub">${esc(last)}</div></div>
+          ${c.unread && !c.muted ? `<span class="fr-unread">${c.unread}</span>` : c.last ? `<span class="muted small">${esc(shortTime(c.last.created))}</span>` : ''}</button>`;
+      }
+      if (!convs.length) html += `<div class="fr-empty">${icon('chat')}<div>${esc(t('No chats yet. Pick a friend to start one.'))}</div></div>`;
+    } else if (F.tab === 'requests') {
+      const inc = d.incoming.filter(r => match(r.name)), out = d.outgoing.filter(r => match(r.name));
+      if (inc.length) html += `<div class="fr-group-h">${esc(t('Received'))} — ${inc.length}</div>`;
+      for (const r of inc) {
+        html += `<div class="fr-item">${faceHtml(r.uuid)}<div class="fr-txt"><div class="fr-name">${esc(r.name)}</div><div class="fr-sub">${esc(r.mutual ? t('{0} mutual friend(s)', r.mutual) : timeAgo(r.created))}</div></div>
+          <div class="fr-btns"><button class="icon-btn" title="${esc(t('Accept'))}" data-accept="${esc(r.uuid)}">${icon('check')}</button><button class="icon-btn" title="${esc(t('Decline'))}" data-decline="${esc(r.uuid)}">${icon('x')}</button><button class="icon-btn" title="${esc(t('Block'))}" data-blockreq="${esc(r.uuid)}" data-name="${esc(r.name)}">${icon('ban')}</button></div></div>`;
+      }
+      if (out.length) html += `<div class="fr-group-h">${esc(t('Sent'))} — ${out.length}</div>`;
+      for (const r of out) {
+        html += `<div class="fr-item">${faceHtml(r.uuid)}<div class="fr-txt"><div class="fr-name">${esc(r.name)}</div><div class="fr-sub">${esc(t('Waiting · {0}', timeAgo(r.created)))}</div></div>
+          <div class="fr-btns"><button class="icon-btn" title="${esc(t('Cancel'))}" data-cancel="${esc(r.uuid)}">${icon('x')}</button></div></div>`;
+      }
+      if (!inc.length && !out.length) html = `<div class="fr-empty">${icon('user-plus')}<div>${esc(t('No open friend requests.'))}</div></div>`;
+    } else {
+      html += `<form class="fr-add" id="frBlockForm" style="margin:4px 0 8px"><input id="frBlockName" placeholder="${esc(t('Block a player by name'))}" maxlength="16" autocomplete="off" spellcheck="false" /><button class="btn ghost small" type="submit" title="${esc(t('Block'))}">${icon('ban')}</button></form>`;
+      const list = d.blocked.filter(b => match(b.name));
+      for (const b of list) {
+        html += `<div class="fr-item">${faceHtml(b.uuid)}<div class="fr-txt"><div class="fr-name">${esc(b.name)}</div><div class="fr-sub">${esc(t('Blocked {0}', timeAgo(b.created)))}</div></div>
+          <button class="btn ghost small" data-unblock="${esc(b.uuid)}">${esc(t('Unblock'))}</button></div>`;
+      }
+      if (!list.length) html += `<div class="fr-empty">${icon('ban')}<div>${esc(t('Blocked players cannot send you requests, messages or invites and do not see when you are online.'))}</div></div>`;
+    }
+    $('#frList').innerHTML = html;
+    $('#frNewGroup')?.addEventListener('click', newGroupDialog);
+    const bf = $('#frBlockForm');
+    if (bf) bf.onsubmit = async e => {
+      e.preventDefault();
+      const name = $('#frBlockName').value.trim();
+      if (!name) return;
+      if (!(await confirmDialog({ title: t('Block {0}?', name), text: t('{0} can no longer send you requests, messages or invites and will not see you online. An existing friendship ends.', name), ok: t('Block'), danger: true }))) return;
+      fReq('block', { name }).then(r => toast('success', t('{0} blocked.', r.name))).catch(fail);
+    };
+  }
+
+  const convTitle = c => (c.kind === 'group' ? c.name : nameOf(c.with));
+  function shortTime(ts) {
+    const d = new Date(ts), n = new Date();
+    return d.toDateString() === n.toDateString() ? d.toLocaleTimeString(I18N.locale(), { hour: '2-digit', minute: '2-digit' }) : d.toLocaleDateString(I18N.locale(), { day: '2-digit', month: '2-digit' });
+  }
+  function systemText(m) {
+    const e = m.extra || {};
+    const who = m.senderName;
+    switch (e.event) {
+      case 'created': return t('{0} created the group “{1}”.', who, e.name);
+      case 'added': return t('{0} added {1}.', who, e.name);
+      case 'removed': return t('{0} removed {1}.', who, e.name);
+      case 'left': return t('{0} left the group.', e.name || who);
+      case 'renamed': return t('{0} renamed the group to “{1}”.', who, e.name);
+      default: return '';
+    }
+  }
+
+  $('#frTabs').addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (!b) return; F.tab = b.dataset.tab; renderFrList(); });
+  $('#frSearch').addEventListener('input', debounce(e => { F.search = e.target.value; renderFrList(); }, 120));
+  $('#frAddForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const input = $('#frAddName');
+    const name = input.value.trim();
+    if (!name) return;
+    try {
+      const r = await fReq('friend.request', { name });
+      toast('success', r.friends ? t('You and {0} are now friends.', r.name) : t('Friend request sent to {0}.', r.name));
+      input.value = '';
+    } catch (err) { fail(err); }
+  });
+  $('#frList').addEventListener('click', async e => {
+    const el = e.target.closest('[data-friend],[data-conv],[data-accept],[data-decline],[data-cancel],[data-unblock],[data-blockreq]');
+    if (!el) return;
+    const ds = el.dataset;
+    try {
+      if (ds.friend) selectFriend(ds.friend);
+      else if (ds.conv) selectConv(ds.conv);
+      else if (ds.accept) { await fReq('friend.accept', { uuid: ds.accept }); toast('success', t('Friend request accepted.')); }
+      else if (ds.decline) await fReq('friend.decline', { uuid: ds.decline });
+      else if (ds.cancel) await fReq('friend.cancel', { uuid: ds.cancel });
+      else if (ds.unblock) { await fReq('unblock', { uuid: ds.unblock }); toast('success', t('Unblocked.')); }
+      else if (ds.blockreq) {
+        if (!(await confirmDialog({ title: t('Block {0}?', ds.name), text: t('{0} can no longer send you requests, messages or invites and will not see you online. An existing friendship ends.', ds.name), ok: t('Block'), danger: true }))) return;
+        await fReq('block', { uuid: ds.blockreq });
+      }
+    } catch (err) { fail(err); }
+  });
+
+  function selectFriend(uuid) {
+    F.sel = { type: 'friend', id: uuid };
+    F.reply = null;
+    renderFrList(); renderFrMain();
+  }
+  function selectConv(id) {
+    const c = convBy(id);
+    if (c?.kind === 'dm') { selectFriend(c.with); return; }
+    F.sel = { type: 'conv', id };
+    F.reply = null;
+    renderFrList(); renderFrMain();
+  }
+
+  // ---- Rechte Seite -------------------------------------------------------
+  function currentConv() {
+    if (!F.sel) return null;
+    return F.sel.type === 'friend' ? dmWith(F.sel.id) : convBy(F.sel.id);
+  }
+
+  function renderFrMain(focus = true) {
+    const main = $('#frMain');
+    if (!F.sel || (F.sel.type === 'friend' && !friendBy(F.sel.id) && !dmWith(F.sel.id)) || (F.sel.type === 'conv' && !convBy(F.sel.id))) {
+      F.sel = null;
+      main.innerHTML = `<div class="fr-empty">${icon('chat')}<h3>${esc(t('Pick a friend'))}</h3><div>${esc(t('Chat, invite them to your server or join the server they are on.'))}</div></div>`;
+      return;
+    }
+    const conv = currentConv();
+    let head = '', members = '';
+    if (F.sel.type === 'friend') {
+      const f = friendBy(F.sel.id);
+      const name = f ? f.name : nameOf(F.sel.id);
+      const p = f?.presence;
+      const a = p?.activity;
+      head = `<div class="fr-head">${faceHtml(F.sel.id, { big: true, dot: dotOf(p) })}
+        <div class="fr-txt"><h3>${esc(f?.nickname || name)}${f?.nickname ? ` <span class="fr-nick">${esc(name)}</span>` : ''}</h3><div class="fr-sub">${esc(f ? presenceText(p, true) : t('Not your friend'))}</div></div>
+        <div class="fr-actions">
+          ${a?.joinable ? `<button class="btn small" id="frJoin">${icon('play')}${esc(t('Join'))}</button>` : ''}
+          ${f && p?.state !== 'offline' && a && !a.joinable ? `<button class="btn ghost small" id="frAsk" title="${esc(t('Ask if you can join'))}">${icon('login')}${esc(t('Ask to join'))}</button>` : ''}
+          ${f ? `<button class="btn ghost small" id="frInvite">${icon('send')}${esc(t('Invite'))}</button>` : ''}
+          ${f && p?.hasProfile ? `<button class="icon-btn" id="frMods" title="${esc(t('Mod profile'))}">${icon('cube')}</button>` : ''}
+          ${f ? `<button class="icon-btn ${f.favorite ? 'on' : ''}" id="frFav" title="${esc(f.favorite ? t('Remove from favorites') : t('Add to favorites'))}">${icon('star')}</button>` : ''}
+          ${f ? `<button class="icon-btn" id="frMute" title="${esc(f.muted ? t('Notifications off – turn on') : t('Mute notifications'))}">${icon(f.muted ? 'bell-off' : 'bell')}</button>` : ''}
+          <button class="icon-btn" id="frMore" title="${esc(t('More'))}">${icon('more')}</button>
+        </div></div>`;
+    } else {
+      const c = conv;
+      head = `<div class="fr-head"><div class="fr-face big">${icon('users')}</div>
+        <div class="fr-txt"><h3>${esc(c.name)}</h3><div class="fr-sub">${esc(t('{0} members', c.members.length))}</div></div>
+        <div class="fr-actions">
+          <button class="btn ghost small" id="frGAdd">${icon('user-plus')}${esc(t('Add'))}</button>
+          <button class="icon-btn" id="frGMute" title="${esc(c.muted ? t('Notifications off – turn on') : t('Mute notifications'))}">${icon(c.muted ? 'bell-off' : 'bell')}</button>
+          <button class="icon-btn" id="frMore" title="${esc(t('More'))}">${icon('more')}</button>
+        </div></div>`;
+      members = `<div class="fr-members">${c.members.map(m => {
+        const f = friendBy(m.uuid);
+        return `<span class="fr-chip">${faceHtml(m.uuid, { dot: m.uuid === myUuid() ? 'online' : dotOf(f?.presence) })}${esc(m.uuid === myUuid() ? t('You') : nameOf(m.uuid))}${c.owner === m.uuid ? ` ${icon('star')}` : ''}${c.owner === myUuid() && m.uuid !== myUuid() ? `<button data-kick="${esc(m.uuid)}" title="${esc(t('Remove from group'))}">${icon('x')}</button>` : ''}</span>`;
+      }).join('')}</div>`;
+    }
+    const other = F.sel.type === 'friend' ? F.sel.id : null;
+    const isBlocked = other && F.data.blocked.some(b => b.uuid === other);
+    const canChat = F.sel.type === 'conv' || Boolean(friendBy(other)) || Boolean(conv);
+    main.innerHTML = `${head}${members}
+      <div class="fr-msgs" id="frMsgs"></div>
+      <div class="fr-typing" id="frTyping"></div>
+      ${isBlocked ? `<div class="fr-blocked-note">${esc(t('You blocked this player.'))}</div>` : canChat ? `
+      <div class="fr-reply" id="frReply" hidden></div>
+      <form class="fr-compose" id="frCompose"><textarea id="frText" rows="1" maxlength="1000" placeholder="${esc(t('Message {0}', F.sel.type === 'friend' ? nameOf(other) : conv.name))}"></textarea><button class="btn" type="submit" title="${esc(t('Send'))}">${icon('send')}</button></form>` : ''}`;
+    wireMain(conv);
+    renderMsgs(true);
+    const key = F.sel.type + F.sel.id;
+    const ta = $('#frText');
+    if (ta) { ta.value = F.drafts[key] || ''; autoGrow(ta); if (focus) setTimeout(() => ta.focus(), 20); }
+    if (conv && !F.msgs[conv.id]) loadHistory(conv.id);
+    else markRead();
+  }
+
+  function autoGrow(ta) { ta.style.height = 'auto'; ta.style.height = `${Math.min(140, ta.scrollHeight + 2)}px`; }
+
+  function wireMain(conv) {
+    const sel = F.sel;
+    const f = sel.type === 'friend' ? friendBy(sel.id) : null;
+    $('#frJoin')?.addEventListener('click', () => joinFriend(sel.id));
+    $('#frAsk')?.addEventListener('click', () => fReq('join.ask', { to: sel.id }).then(() => toast('success', t('Asked {0}. They get a notification.', fLabel(f)))).catch(fail));
+    $('#frInvite')?.addEventListener('click', () => inviteDialog(sel.id));
+    $('#frMods')?.addEventListener('click', () => modProfileDialog(sel.id));
+    $('#frFav')?.addEventListener('click', () => fReq('friend.update', { uuid: sel.id, favorite: !f.favorite }).catch(fail));
+    $('#frMute')?.addEventListener('click', () => fReq('friend.update', { uuid: sel.id, muted: !f.muted }).catch(fail));
+    $('#frGAdd')?.addEventListener('click', () => groupAddDialog(conv));
+    $('#frGMute')?.addEventListener('click', () => fReq('chat.mute', { conv: conv.id, muted: !conv.muted }).then(r => { Object.assign(conv, r.conv); renderFrMain(); renderFrList(); updateFriendsBadge(); }).catch(fail));
+    $('#frMore')?.addEventListener('click', e => moreMenu(e.currentTarget, conv));
+    $('#frMain .fr-members')?.addEventListener('click', async e => {
+      const b = e.target.closest('[data-kick]');
+      if (!b) return;
+      if (!(await confirmDialog({ title: t('Remove {0}?', nameOf(b.dataset.kick)), text: t('{0} is removed from the group.', nameOf(b.dataset.kick)), ok: t('Remove'), danger: true }))) return;
+      fReq('group.kick', { conv: conv.id, uuid: b.dataset.kick }).catch(fail);
+    });
+    const form = $('#frCompose');
+    if (!form) return;
+    const ta = $('#frText');
+    const key = sel.type + sel.id;
+    ta.addEventListener('input', () => {
+      F.drafts[key] = ta.value; autoGrow(ta);
+      const c = currentConv();
+      if (c && Date.now() - F.lastTyping > 3000 && ta.value.trim()) { F.lastTyping = Date.now(); fReq('chat.typing', { conv: c.id }).catch(() => {}); }
+    });
+    ta.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); }
+      if (e.key === 'Escape' && F.reply) { F.reply = null; renderReply(); }
+      if (e.key === 'ArrowUp' && !ta.value) {
+        const c = currentConv();
+        const mine = (F.msgs[c?.id]?.list || []).filter(m => m.sender === myUuid() && !m.deleted && m.kind === 'text').pop();
+        if (mine && Date.now() - mine.created < 15 * 60 * 1000) { e.preventDefault(); editMessage(mine); }
+      }
+    });
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      const body = ta.value.trim();
+      if (!body) return;
+      const args = { body, replyTo: F.reply?.id || 0 };
+      const c = currentConv();
+      if (c) args.conv = c.id; else args.to = sel.id;
+      ta.value = ''; F.drafts[key] = ''; autoGrow(ta);
+      const reply = F.reply; F.reply = null; renderReply();
+      try {
+        const r = await fReq('chat.send', args);
+        addMessage(r.message.conv, r.message);
+      } catch (err) { ta.value = body; F.drafts[key] = body; F.reply = reply; renderReply(); fail(err); }
+    });
+    renderReply();
+  }
+
+  function renderReply() {
+    const el = $('#frReply');
+    if (!el) return;
+    el.hidden = !F.reply;
+    if (F.reply) {
+      el.innerHTML = `${icon('reply')}<span>${esc(t('Reply to {0}', F.reply.senderName))}: ${esc(F.reply.body)}</span><button class="icon-btn" style="width:22px;height:22px">${icon('x')}</button>`;
+      $('button', el).onclick = () => { F.reply = null; renderReply(); };
+    }
+  }
+
+  async function loadHistory(convId, older = false) {
+    const cur = F.msgs[convId] || { list: [], more: true };
+    try {
+      const r = await fReq('chat.history', { conv: convId, before: older && cur.list.length ? cur.list[0].id : undefined });
+      const known = new Set(cur.list.map(m => m.id));
+      F.msgs[convId] = { list: [...r.messages.filter(m => !known.has(m.id)), ...cur.list].sort((a, b) => a.id - b.id), more: r.more };
+    } catch (e) { fail(e); return; }
+    if (currentConv()?.id === convId) { renderMsgs(!older); markRead(); }
+  }
+
+  function addMessage(convId, m) {
+    const box = F.msgs[convId];
+    if (box) {
+      const i = box.list.findIndex(x => x.id === m.id);
+      if (i >= 0) box.list[i] = m; else box.list.push(m);
+    }
+    if (currentConv()?.id === convId) { renderMsgs(true); markRead(); }
+  }
+
+  function markRead() {
+    const c = currentConv();
+    if (!c || S.page !== 'friends' || !document.hasFocus()) return;
+    const list = F.msgs[c.id]?.list || [];
+    const last = list[list.length - 1];
+    if (c.unread || (last && last.sender !== myUuid())) {
+      c.unread = 0;
+      if (last) fReq('chat.read', { conv: c.id, upTo: last.id }).catch(() => {});
+      updateFriendsBadge(); renderFrList();
+    }
+  }
+
+  function renderMsgs(scrollDown = false) {
+    const box = $('#frMsgs');
+    if (!box) return;
+    const c = currentConv();
+    const data = c ? F.msgs[c.id] : { list: [], more: false };
+    if (c && !data) { box.innerHTML = `<div class="fr-empty"><div class="spinner"></div></div>`; return; }
+    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+    const prevHeight = box.scrollHeight;
+    const me = myUuid();
+    const byId = new Map(data.list.map(m => [m.id, m]));
+    let html = data.more ? `<button class="btn ghost small" id="frOlder" style="align-self:center;margin-bottom:8px">${esc(t('Load older messages'))}</button>` : '';
+    let lastDay = '', lastSender = null, lastTime = 0;
+    const seenUpTo = c?.readUpTo || 0;
+    const lastMine = [...data.list].reverse().find(m => m.sender === me && !m.deleted);
+    for (const m of data.list) {
+      const day = new Date(m.created).toDateString();
+      if (day !== lastDay) { html += `<div class="fr-day">${esc(new Date(m.created).toLocaleDateString(I18N.locale(), { weekday: 'long', day: 'numeric', month: 'long' }))}</div>`; lastDay = day; lastSender = null; }
+      if (m.kind === 'system') { html += `<div class="fr-sys">${esc(systemText(m))}</div>`; lastSender = null; continue; }
+      const mine = m.sender === me;
+      const first = m.sender !== lastSender || m.created - lastTime > 5 * 60 * 1000;
+      lastSender = m.sender; lastTime = m.created;
+      let bubble;
+      if (m.deleted) bubble = `<div class="fr-bubble deleted">${esc(t('Message deleted'))}</div>`;
+      else if (m.blocked) bubble = `<div class="fr-bubble deleted">${esc(t('Message from a blocked player'))}</div>`;
+      else if (m.kind === 'invite') {
+        const e = m.extra || {};
+        const expired = e.expires && e.expires < Date.now();
+        const live = !mine && !expired && !F.answered.has(e.id) && (F.data.invites?.some(i => i.id === e.id) || Date.now() - m.created < 15000);
+        bubble = `<div class="fr-invite"><strong>${icon('server')} ${esc(mine ? t('You sent an invite') : t('{0} invites you', m.senderName))}</strong>
+          <span class="fr-invite-addr">${esc(e.serverName ? `${e.serverName} · ${e.address}` : e.address)}${e.version ? ` · ${esc(e.version)}` : ''}</span>
+          ${live ? `<div class="row-btns" style="justify-content:flex-start;margin:0"><button class="btn small" data-invjoin="${esc(e.id)}">${icon('play')}${esc(t('Join'))}</button><button class="btn ghost small" data-invno="${esc(e.id)}">${esc(t('Decline'))}</button></div>` : `<span class="muted small">${esc(expired ? t('Expired') : mine ? t('Valid for 10 minutes') : t('Answered'))}</span>`}</div>`;
+      } else {
+        const q = m.replyTo ? byId.get(m.replyTo) : null;
+        bubble = `<div class="fr-bubble">${q ? `<span class="fr-quote">${esc(q.senderName)}: ${esc(q.deleted ? t('Message deleted') : q.body)}</span>` : ''}${esc(m.body)}</div>`;
+      }
+      const tools = !m.deleted && !m.blocked && m.kind === 'text'
+        ? `<div class="fr-tools"><button data-reply="${m.id}" title="${esc(t('Reply'))}">${icon('reply')}</button>${mine && Date.now() - m.created < 15 * 60 * 1000 ? `<button data-edit="${m.id}" title="${esc(t('Edit'))}">${icon('edit')}</button>` : ''}${mine ? `<button data-del="${m.id}" title="${esc(t('Delete'))}">${icon('trash')}</button>` : ''}<button data-copy="${m.id}" title="${esc(t('Copy'))}">${icon('copy')}</button></div>` : '';
+      const time = new Date(m.created).toLocaleTimeString(I18N.locale(), { hour: '2-digit', minute: '2-digit' });
+      const seen = mine && m === lastMine && c?.kind === 'dm' && seenUpTo >= m.id ? ` · ${t('Seen')}` : '';
+      html += `<div class="fr-msg ${mine ? 'mine' : ''} ${first ? 'first' : ''}" data-id="${m.id}">
+        ${first && !mine && c?.kind === 'group' ? `<div class="fr-who">${esc(nameOf(m.sender))}</div>` : ''}${bubble}${tools}
+        ${first || m === lastMine ? `<div class="fr-meta">${esc(time)}${m.edited ? ` · ${esc(t('edited'))}` : ''}${esc(seen)}</div>` : ''}</div>`;
+    }
+    if (!data.list.length) {
+      const f = F.sel?.type === 'friend' ? friendBy(F.sel.id) : null;
+      html = `<div class="fr-empty">${icon('chat')}<div>${esc(f ? t('Say hi to {0}!', fLabel(f)) : t('No messages yet'))}</div></div>`;
+    }
+    box.innerHTML = html;
+    $('#frOlder')?.addEventListener('click', () => loadHistory(c.id, true));
+    if (scrollDown || atBottom) box.scrollTop = box.scrollHeight;
+    else box.scrollTop = box.scrollHeight - prevHeight + box.scrollTop;
+  }
+
+  document.addEventListener('click', async e => {
+    const el = e.target.closest('#frMsgs [data-reply],#frMsgs [data-edit],#frMsgs [data-del],#frMsgs [data-copy],#frMsgs [data-invjoin],#frMsgs [data-invno]');
+    if (!el) return;
+    const c = currentConv();
+    const find = id => (F.msgs[c?.id]?.list || []).find(m => m.id === Number(id));
+    const ds = el.dataset;
+    try {
+      if (ds.reply) { F.reply = find(ds.reply); renderReply(); $('#frText')?.focus(); }
+      else if (ds.edit) editMessage(find(ds.edit));
+      else if (ds.del) {
+        if (!(await confirmDialog({ title: t('Delete message?'), text: t('It is deleted for everyone in this chat.'), ok: t('Delete'), danger: true }))) return;
+        const r = await fReq('chat.delete', { id: Number(ds.del) }); addMessage(r.message.conv, r.message);
+      } else if (ds.copy) { await navigator.clipboard.writeText(find(ds.copy)?.body || ''); toast('success', t('Copied.')); }
+      else if (ds.invjoin) answerInvite(ds.invjoin, true);
+      else if (ds.invno) answerInvite(ds.invno, false);
+    } catch (err) { fail(err); }
+  });
+
+  function editMessage(m) {
+    if (!m) return;
+    const { el, close } = openModal(`<h3>${esc(t('Edit message'))}</h3><textarea class="fr-input" id="frEditText" maxlength="1000" style="width:100%;height:110px;padding:10px;resize:vertical">${esc(m.body)}</textarea>
+      <div class="row-btns"><button class="btn ghost" data-x>${esc(t('Cancel'))}</button><button class="btn" data-ok>${esc(t('Save'))}</button></div>`);
+    const ta = $('#frEditText', el); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
+    const save = async () => { try { const r = await fReq('chat.edit', { id: m.id, body: ta.value }); addMessage(r.message.conv, r.message); close(); } catch (err) { fail(err); } };
+    $('[data-x]', el).onclick = close; $('[data-ok]', el).onclick = save;
+    ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); save(); } };
+  }
+
+  // ---- Aktionen -----------------------------------------------------------
+  async function joinFriend(uuid) {
+    try {
+      const r = await fReq('join.check', { uuid });
+      handleJoin({ address: r.address, version: r.version });
+    } catch (e) { fail(e); }
+  }
+
+  async function answerInvite(id, accept) {
+    try {
+      F.answered.add(id);
+      const r = await fReq('invite.respond', { id, accept });
+      if (F.data) F.data.invites = (F.data.invites || []).filter(i => i.id !== id);
+      const c = currentConv(); if (c) renderMsgs();
+      if (accept) {
+        const version = r.version && S.versions.some(x => x.version === r.version) ? r.version : selected();
+        showPage('home');
+        play(null, version, r.address);
+      }
+    } catch (e) { fail(e); if (F.data) F.data.invites = (F.data.invites || []).filter(i => i.id !== id); renderMsgs(); }
+  }
+
+  function inviteDialog(uuid) {
+    const f = friendBy(uuid);
+    const myAct = F.selfPresence?.activity;
+    const current = myAct?.mode === 'server' ? myAct.address : '';
+    const options = [...new Map(S.servers.map(s => [s.address, s])).values()].slice(0, 8);
+    const { el, close } = openModal(`<h3>${esc(t('Invite {0}', fLabel(f)))}</h3>
+      <p class="muted">${esc(t('{0} gets a notification with a Join button – in the launcher and in the game.', fLabel(f)))}</p>
+      <div class="fr-pick">
+        ${current ? `<label><input type="radio" name="frInv" value="${esc(current)}" checked /> ${icon('play')} ${esc(t('My current server'))} <span class="muted">${esc(current)}</span></label>` : ''}
+        ${options.map((s, i) => `<label><input type="radio" name="frInv" value="${esc(s.address)}" ${!current && i === 0 ? 'checked' : ''} /> ${esc(s.name)} <span class="muted">${esc(s.address)}</span></label>`).join('')}
+        <label><input type="radio" name="frInv" value="" ${!current && !options.length ? 'checked' : ''} /> ${esc(t('Other address'))} <input class="fr-input" id="frInvAddr" placeholder="play.example.com" style="flex:1;height:30px" spellcheck="false" /></label>
+      </div>
+      <div class="row-btns"><button class="btn ghost" data-x>${esc(t('Cancel'))}</button><button class="btn" data-ok>${icon('send')}${esc(t('Send invite'))}</button></div>`);
+    $('#frInvAddr', el).addEventListener('focus', () => { $('input[name=frInv][value=""]', el).checked = true; });
+    $('[data-x]', el).onclick = close;
+    $('[data-ok]', el).onclick = async () => {
+      const pick = $('input[name=frInv]:checked', el)?.value;
+      const address = pick || $('#frInvAddr', el).value.trim();
+      if (!address) { toast('error', t('Enter a server address.')); return; }
+      const s = S.servers.find(x => x.address === address);
+      try { await fReq('invite.send', { to: uuid, address, serverName: s?.name || '', version: selected() }); toast('success', t('Invite sent to {0}.', fLabel(f))); close(); } catch (e) { fail(e); }
+    };
+  }
+
+  async function modProfileDialog(uuid) {
+    let prof;
+    try { prof = await fReq('profile.get', { uuid }); } catch (e) { fail(e); return; }
+    const versions = Object.keys(prof.versions);
+    if (!versions.length) { toast('info', t('{0} has no mods yet.', prof.name)); return; }
+    let cur = versions.includes(selected()) ? selected() : versions[0];
+    const { el, close } = openModal(`<h3>${icon('cube')}${esc(t('Mod profile of {0}', prof.name))}</h3><div class="segmented" id="frModVers" style="margin:10px 0">${versions.map(v => `<button data-v="${esc(v)}">${esc(v)}</button>`).join('')}</div><div class="fr-scroll" id="frModList"></div>
+      <div class="row-btns"><button class="btn ghost" data-x>${esc(t('Close'))}</button><button class="btn" id="frModCopy">${icon('download')}<span></span></button></div>`, { wide: true });
+    $('[data-x]', el).onclick = close;
+    let mine = new Set();
+    const paint = async () => {
+      $$('#frModVers button', el).forEach(b => b.classList.toggle('active', b.dataset.v === cur));
+      mine = new Set();
+      if (S.versions.some(v => v.version === cur)) {
+        try { for (const m of (await call(api.mods.list(cur))).mods) { if (m.id) mine.add(m.id); if (m.projectId) mine.add(m.projectId); } } catch (_) {}
+      }
+      const mods = prof.versions[cur].mods.slice().sort((a, b) => (b.vortex - a.vortex) || a.name.localeCompare(b.name));
+      const missing = mods.filter(m => !m.vortex && m.enabled && m.projectId && !mine.has(m.projectId) && !mine.has(m.id));
+      $('#frModList', el).innerHTML = mods.map(m => `<div class="fr-mod"><span class="grow">${esc(m.name)} <span class="muted">${esc(String(m.version).split('+')[0])}</span></span>
+        ${m.vortex ? '<span class="badge v">VORTEX</span>' : ''}${!m.enabled ? `<span class="badge">${esc(t('off'))}</span>` : ''}
+        ${!m.vortex && (mine.has(m.projectId) || mine.has(m.id)) ? `<span class="badge ok">${esc(t('You have it'))}</span>` : !m.vortex && !m.projectId ? `<span class="muted">${esc(t('not on Modrinth'))}</span>` : ''}</div>`).join('');
+      const btn = $('#frModCopy', el);
+      const known = S.versions.some(v => v.version === cur);
+      btn.disabled = !missing.length || !known;
+      $('span', btn).textContent = !known ? t('You do not have Minecraft {0}', cur) : missing.length ? t('Install {0} missing mod(s)', missing.length) : t('You have all their mods');
+      btn.onclick = async () => {
+        btn.disabled = true;
+        let ok = 0;
+        for (const [i, m] of missing.entries()) {
+          $('span', btn).textContent = t('Installing {0} of {1}…', i + 1, missing.length);
+          try { await call(api.mods.install(m.projectId, cur)); ok++; } catch (e) { toast('error', `${m.name}: ${e.message}`); }
+        }
+        toast('success', t('{0} mod(s) installed for Minecraft {1}.', ok, cur));
+        paint();
+      };
+    };
+    $('#frModVers', el).addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (b) { cur = b.dataset.v; paint(); } });
+    paint();
+  }
+
+  function pickFriendsDialog({ title, button, exclude = new Set(), withName = false }) {
+    return new Promise(resolve => {
+      const list = F.data.friends.filter(f => !exclude.has(f.uuid)).sort((a, b) => fLabel(a).localeCompare(fLabel(b)));
+      if (!list.length) { toast('info', t('All your friends are already in it.')); resolve(null); return; }
+      let done = false;
+      const { el, close } = openModal(`<h3>${esc(title)}</h3>
+        ${withName ? `<input class="fr-input" id="frGName" placeholder="${esc(t('Group name'))}" maxlength="32" style="width:100%;margin-top:10px" />` : ''}
+        <div class="fr-pick">${list.map(f => `<label><input type="checkbox" value="${esc(f.uuid)}" />${faceHtml(f.uuid)} ${esc(fLabel(f))}</label>`).join('')}</div>
+        <div class="row-btns"><button class="btn ghost" data-x>${esc(t('Cancel'))}</button><button class="btn" data-ok>${esc(button)}</button></div>`, { onClose: () => { if (!done) resolve(null); } });
+      $('[data-x]', el).onclick = close;
+      $('[data-ok]', el).onclick = () => {
+        const members = $$('.fr-pick input:checked', el).map(x => x.value);
+        if (!members.length) { toast('error', t('Pick at least one friend.')); return; }
+        done = true; resolve({ members, name: withName ? $('#frGName', el).value.trim() : '' }); close();
+      };
+      setTimeout(() => $('#frGName', el)?.focus(), 30);
+    });
+  }
+
+  async function newGroupDialog() {
+    const r = await pickFriendsDialog({ title: t('New group'), button: t('Create group'), withName: true });
+    if (!r) return;
+    try { const g = await fReq('group.create', { name: r.name || t('Group'), members: r.members }); if (!convBy(g.conv.id)) F.data.convs.unshift(g.conv); selectConv(g.conv.id); } catch (e) { fail(e); }
+  }
+
+  async function groupAddDialog(conv) {
+    const r = await pickFriendsDialog({ title: t('Add to {0}', conv.name), button: t('Add'), exclude: new Set(conv.members.map(m => m.uuid)) });
+    if (!r) return;
+    for (const uuid of r.members) { try { await fReq('group.add', { conv: conv.id, uuid }); } catch (e) { fail(e); } }
+  }
+
+  function moreMenu(anchor, conv) {
+    document.querySelector('.fr-menu')?.remove();
+    const sel = F.sel;
+    const f = sel.type === 'friend' ? friendBy(sel.id) : null;
+    const items = [];
+    if (sel.type === 'friend') {
+      if (f) items.push(['edit', t('Set nickname'), async () => {
+        const { el, close } = openModal(`<h3>${esc(t('Nickname for {0}', f.name))}</h3><p class="muted">${esc(t('Only you see it.'))}</p><input class="fr-input" id="frNick" maxlength="24" value="${esc(f.nickname)}" style="width:100%" /><div class="row-btns"><button class="btn ghost" data-x>${esc(t('Cancel'))}</button><button class="btn" data-ok>${esc(t('Save'))}</button></div>`);
+        const inp = $('#frNick', el); inp.focus(); inp.select();
+        const save = () => fReq('friend.update', { uuid: f.uuid, nickname: inp.value }).then(close).catch(fail);
+        $('[data-x]', el).onclick = close; $('[data-ok]', el).onclick = save; inp.onkeydown = e => { if (e.key === 'Enter') save(); };
+      }]);
+      if (conv) items.push([conv.muted ? 'bell' : 'bell-off', conv.muted ? t('Unmute chat') : t('Mute chat'), () => fReq('chat.mute', { conv: conv.id, muted: !conv.muted }).then(r => { Object.assign(conv, r.conv); renderFrList(); updateFriendsBadge(); }).catch(fail)]);
+      items.push(['copy', t('Copy name'), () => navigator.clipboard.writeText(f?.name || nameOf(sel.id)).then(() => toast('success', t('Copied.')))]);
+      if (f) items.push(['trash', t('Remove friend'), async () => {
+        if (await confirmDialog({ title: t('Remove {0}?', f.name), text: t('You are no longer friends. The chat stays.'), ok: t('Remove'), danger: true })) fReq('friend.remove', { uuid: f.uuid }).catch(fail);
+      }, true]);
+      items.push(['ban', t('Block'), async () => {
+        const name = f?.name || nameOf(sel.id);
+        if (await confirmDialog({ title: t('Block {0}?', name), text: t('{0} can no longer send you requests, messages or invites and will not see you online. An existing friendship ends.', name), ok: t('Block'), danger: true })) fReq('block', { uuid: sel.id }).catch(fail);
+      }, true]);
+    } else {
+      items.push(['edit', t('Rename group'), () => {
+        const { el, close } = openModal(`<h3>${esc(t('Rename group'))}</h3><input class="fr-input" id="frGRen" maxlength="32" value="${esc(conv.name)}" style="width:100%;margin-top:10px" /><div class="row-btns"><button class="btn ghost" data-x>${esc(t('Cancel'))}</button><button class="btn" data-ok>${esc(t('Save'))}</button></div>`);
+        const inp = $('#frGRen', el); inp.focus(); inp.select();
+        const save = () => fReq('group.rename', { conv: conv.id, name: inp.value }).then(close).catch(fail);
+        $('[data-x]', el).onclick = close; $('[data-ok]', el).onclick = save; inp.onkeydown = e => { if (e.key === 'Enter') save(); };
+      }]);
+      items.push(['x', t('Leave group'), async () => {
+        if (!(await confirmDialog({ title: t('Leave {0}?', conv.name), text: t('You no longer get messages from this group.'), ok: t('Leave'), danger: true }))) return;
+        try { await fReq('group.leave', { conv: conv.id }); F.data.convs = F.data.convs.filter(c => c.id !== conv.id); F.sel = null; renderFriends(); } catch (e) { fail(e); }
+      }, true]);
+    }
+    const menu = document.createElement('div');
+    menu.className = 'fr-menu';
+    menu.innerHTML = items.map(([ic, label, , danger], i) => `<button data-i="${i}" class="${danger ? 'danger' : ''}">${icon(ic)}${esc(label)}</button>`).join('');
+    document.body.append(menu);
+    const r = anchor.getBoundingClientRect();
+    menu.style.top = `${r.bottom + 6}px`;
+    menu.style.left = `${Math.max(8, r.right - menu.offsetWidth)}px`;
+    const off = ev => { if (!menu.contains(ev.target)) { menu.remove(); document.removeEventListener('mousedown', off, true); } };
+    setTimeout(() => document.addEventListener('mousedown', off, true), 0);
+    menu.addEventListener('click', e => { const b = e.target.closest('[data-i]'); if (!b) return; menu.remove(); document.removeEventListener('mousedown', off, true); items[Number(b.dataset.i)][2](); });
+  }
+
+  // ---- Einstellungen ------------------------------------------------------
+  $('#frSettingsBtn').addEventListener('click', () => {
+    if (!F.data) return;
+    const s = F.data.me.settings;
+    const AUD = [['friends', t('All friends')], ['favorites', t('Only favorites')], ['nobody', t('Nobody')]];
+    const sel = (group, key, opts) => `<select data-g="${group}" data-k="${key}">${opts.map(([v, l]) => `<option value="${v}" ${s[group][key] === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
+    const sw = (group, key) => `<label class="switch"><input type="checkbox" data-g="${group}" data-k="${key}" ${s[group][key] ? 'checked' : ''} /><i></i></label>`;
+    const row = (title, text, ctl) => `<div class="set-row"><div><strong>${esc(title)}</strong>${text ? `<p>${esc(text)}</p>` : ''}</div>${ctl}</div>`;
+    const NOTE = [['all', t('All friends')], ['favorites', t('Only favorites')], ['off', t('Off')]];
+    const { el } = openModal(`<h3>${icon('sliders')}${esc(t('Privacy & notifications'))}</h3><div class="fr-scroll fr-set">
+      <h4>${esc(t('PRIVACY'))}</h4>
+      ${row(t('Who can send you friend requests'), t('Friends of friends = someone who has a friend in common with you.'), sel('privacy', 'requests', [['everyone', t('Everyone')], ['fof', t('Friends of friends')], ['nobody', t('Nobody')]]))}
+      ${row(t('Who sees that you are online'), t('Everyone else sees you as offline.'), sel('privacy', 'showOnline', AUD))}
+      ${row(t('Who sees which server you are on'), t('Everyone else only sees “Playing Minecraft”.'), sel('privacy', 'showServer', AUD))}
+      ${row(t('Friends can join you directly'), t('Shows a Join button next to your server.'), sw('privacy', 'allowJoin'))}
+      ${row(t('Who can see your mod profile'), t('Your mods per Minecraft version – friends can install the missing ones with one click.'), sel('privacy', 'modProfile', AUD))}
+      ${row(t('Who can message you'), '', sel('privacy', 'messages', AUD))}
+      ${row(t('Who can invite you to servers'), '', sel('privacy', 'invites', AUD))}
+      ${row(t('Who can ask to join you'), '', sel('privacy', 'joinRequests', AUD))}
+      ${row(t('Who can add you to groups'), '', sel('privacy', 'groups', AUD))}
+      ${row(t('Who sees “last seen”'), '', sel('privacy', 'lastSeen', AUD))}
+      ${row(t('Send read receipts'), t('Off: nobody sees when you read their messages – and you do not see theirs.'), sw('privacy', 'readReceipts'))}
+      ${row(t('Show when you are typing'), '', sw('privacy', 'typing'))}
+      <h4>${esc(t('NOTIFICATIONS'))}</h4>
+      ${row(t('Friend comes online'), '', sel('notify', 'friendOnline', NOTE))}
+      ${row(t('Friend goes offline'), '', sel('notify', 'friendOffline', NOTE))}
+      ${row(t('Friend joins a server'), t('With a Join button, if they allow it.'), sel('notify', 'friendJoin', NOTE))}
+      ${row(t('Direct messages'), '', sel('notify', 'messages', NOTE))}
+      ${row(t('Group messages'), t('Mentions = only when someone writes @yourname.'), sel('notify', 'groupMessages', [['all', t('All')], ['mentions', t('Only mentions')], ['off', t('Off')]]))}
+      ${row(t('Server invites'), '', sw('notify', 'invites'))}
+      ${row(t('Friend requests'), '', sw('notify', 'requests'))}
+      ${row(t('Join requests'), '', sw('notify', 'joinRequests'))}
+      ${row(t('While you play'), t('Important = only messages, invites and join requests.'), sel('notify', 'whilePlaying', [['all', t('All')], ['important', t('Only important')], ['off', t('None')]]))}
+      ${row(t('Show in the game'), t('As a small popup in the corner (Vortex Client).'), sw('notify', 'inGame'))}
+      ${row(t('Windows notifications'), t('When the launcher is in the background.'), sw('notify', 'desktop'))}
+      ${row(t('Sound'), '', sw('notify', 'sound'))}
+      ${row(t('“Do not disturb” silences everything'), '', sw('notify', 'dndSilence'))}
+      </div><div class="row-btns"><button class="btn" data-x>${esc(t('Done'))}</button></div>`, { wide: true });
+    $('[data-x]', el).onclick = () => modalClose?.();
+    el.addEventListener('change', async e => {
+      const inp = e.target.closest('[data-g]');
+      if (!inp) return;
+      const patch = { [inp.dataset.g]: { [inp.dataset.k]: inp.type === 'checkbox' ? inp.checked : inp.value } };
+      try { const r = await fReq('settings.set', { patch }); F.data.me.settings = r.settings; toast('success', t('Saved.')); } catch (err) { fail(err); }
+    });
+  });
+
+  // ---- Ereignisse vom Hauptprozess ------------------------------------------
+  api.on.friends(({ ev, data: d }) => {
+    if (ev === 'status') { F.status = d; if (d.conn !== 'online') { if (d.conn !== 'offline') F.data = null; } renderFriends(); return; }
+    if (!F.data && ev !== 'state') return;
+    switch (ev) {
+      case 'state': {
+        F.data = d;
+        F.status = { ...F.status, conn: 'online' };
+        renderFriends();
+        break;
+      }
+      case 'self': F.selfPresence = d.presence; if (F.data.me) F.data.me.status = d.status; if (S.page === 'friends') renderFrMe(); break;
+      case 'presence': {
+        const f = friendBy(d.uuid);
+        if (f) f.presence = d.presence;
+        if (S.page === 'friends') { renderFrList(); if (F.sel?.type === 'friend' && F.sel.id === d.uuid && !$('#frText:focus')) renderFrHeadOnly(); }
+        break;
+      }
+      case 'message': {
+        const i = F.data.convs.findIndex(c => c.id === d.conv.id);
+        if (i >= 0) F.data.convs.splice(i, 1);
+        F.data.convs.unshift(d.conv);
+        const box = F.msgs[d.conv.id];
+        if (box && !box.list.some(m => m.id === d.message.id)) box.list.push(d.message);
+        delete (F.typing[d.conv.id] || {})[d.message.sender];
+        const open = currentConv()?.id === d.conv.id && S.page === 'friends';
+        if (open) { if (!box) loadHistory(d.conv.id); else { renderMsgs(); markRead(); } renderTyping(); }
+        updateFriendsBadge();
+        if (S.page === 'friends') renderFrList();
+        break;
+      }
+      case 'messageUpdate': addMessage(d.conv, d.message); break;
+      case 'read': {
+        const c = convBy(d.conv);
+        if (!c) break;
+        if (d.uuid === myUuid()) { c.unread = 0; updateFriendsBadge(); if (S.page === 'friends') renderFrList(); }
+        else { c.readUpTo = d.upTo; if (currentConv()?.id === c.id) renderMsgs(); }
+        break;
+      }
+      case 'typing': {
+        (F.typing[d.conv] = F.typing[d.conv] || {})[d.uuid] = Date.now();
+        renderTyping();
+        setTimeout(renderTyping, 5200);
+        break;
+      }
+      case 'invite': F.data.invites = [...(F.data.invites || []).filter(i => i.id !== d.id), d]; if (S.page === 'friends' && currentConv()) renderMsgs(); break;
+      case 'convRemoved': F.data.convs = F.data.convs.filter(c => c.id !== d.conv); if (F.sel?.id === d.conv) F.sel = null; renderFriends(); break;
+      default: break;
+    }
+  });
+
+  function renderFrHeadOnly() {
+    // Status des Freundes hat sich geaendert: Kopf neu, Chat und Entwurf bleiben
+    const box = $('#frMsgs');
+    const scroll = box ? box.scrollTop : null;
+    renderFrMain(false);
+    if (scroll != null && $('#frMsgs')) $('#frMsgs').scrollTop = scroll;
+  }
+
+  function renderTyping() {
+    const el = $('#frTyping');
+    if (!el) return;
+    const c = currentConv();
+    const who = Object.entries(F.typing[c?.id] || {}).filter(([u, ts]) => Date.now() - ts < 5000 && u !== myUuid()).map(([u]) => nameOf(u));
+    el.textContent = who.length ? (who.length === 1 ? t('{0} is typing…', who[0]) : t('{0} are typing…', who.join(', '))) : '';
+  }
+
+  // Benachrichtigung im Launcher (Fenster im Vordergrund)
+  let audioCtx = null;
+  function blip() {
+    try {
+      audioCtx = audioCtx || new AudioContext();
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type = 'sine'; o.frequency.setValueAtTime(880, audioCtx.currentTime); o.frequency.exponentialRampToValueAtTime(1320, audioCtx.currentTime + 0.09);
+      g.gain.setValueAtTime(0.0001, audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.12, audioCtx.currentTime + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.25);
+      o.connect(g).connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime + 0.26);
+    } catch (_) {}
+  }
+  api.on.friendsNotify(n => {
+    if (!n.focused) return;
+    if (n.kind === 'message' && S.page === 'friends' && currentConv()?.id === n.conv) return;
+    if (n.sound) blip();
+    const actions = [];
+    if (n.kind === 'invite' && n.invite) actions.push({ label: t('Join'), run: () => answerInvite(n.invite.id, true) }, { label: t('Decline'), run: () => answerInvite(n.invite.id, false) });
+    else if (n.kind === 'join' && n.joinable) actions.push({ label: t('Join'), run: () => handleJoin({ address: n.address, version: n.version }) });
+    else if (n.kind === 'request') actions.push({ label: t('Accept'), run: () => fReq('friend.accept', { uuid: n.uuid }).catch(fail) }, { label: t('Show'), run: () => { showPage('friends'); F.tab = 'requests'; renderFrList(); } });
+    else if (n.kind === 'joinRequest') actions.push({ label: t('Invite'), run: () => { showPage('friends'); selectFriend(n.uuid); inviteDialog(n.uuid); } });
+    else if (n.uuid && n.kind !== 'offline') actions.push({ label: t('Open'), run: () => { showPage('friends'); n.conv && convBy(n.conv)?.kind === 'group' ? selectConv(n.conv) : selectFriend(n.uuid); } });
+    toast('info', `${tr(n.title)}${n.body ? ` – ${tr(n.body)}` : ''}`, actions);
+  });
+  api.on.friendsOpen(o => {
+    showPage('friends');
+    if (o?.conv && convBy(o.conv)?.kind === 'group') selectConv(o.conv);
+    else if (o?.uuid) selectFriend(o.uuid);
+  });
+  window.addEventListener('focus', () => { if (S.page === 'friends') markRead(); });
+
+  // -----------------------------------------------------------------------
   // Start
   // -----------------------------------------------------------------------
   async function init() {
@@ -2217,6 +3000,7 @@
     renderSettings();
     refreshStatuses(S.servers.slice(0, 3));
     loadNews();
+    loadFriends();
     setTimeout(() => $('#splash').classList.add('done'), 450);
     // Updates der Mods im Hintergrund pruefen (nur Anzeige)
     setTimeout(() => { if (S.versions.some(v => v.version === selected())) api.mods.checkUpdates(selected()).then(r => { if (r?.ok) { S.modUpdates[selected()] = r.updates; updateNavBadge(); } }).catch(() => {}); }, 4000);

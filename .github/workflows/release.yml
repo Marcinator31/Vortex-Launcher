@@ -20,6 +20,8 @@ on:
       - '.github/workflows/sync-vortex-files.yml'
       # Einladungsseite (GitHub Pages) ist kein Launcher-Update
       - 'docs/**'
+      # Freunde-Server laeuft woanders (Render/VPS) -- kein Launcher-Update
+      - 'server/**'
   workflow_dispatch:
 
 # Mehrere Aenderungen kurz hintereinander: nur der neueste Build laeuft zu Ende.

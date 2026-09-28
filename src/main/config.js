@@ -45,6 +45,14 @@ module.exports = Object.freeze({
    */
   crashWebhook: '',
 
+  /**
+   * Freunde-Server (Ordner server/, Anleitung in server/README.md):
+   * Adresse mit wss:// und /ws am Ende, z. B. 'wss://vortex-friends.onrender.com/ws'.
+   * Leer = Freunde-Funktion aus. Der Launcher gibt die Adresse beim Start
+   * auch an den Vortex Client weiter (Freunde im Spiel).
+   */
+  friendsServer: '',
+
   website: 'https://vortex-client.onrender.com',
   officialServer: { name: 'VortexPvP', address: 'mc.vortexpvp.eu' }
 });

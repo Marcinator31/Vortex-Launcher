@@ -1907,7 +1907,7 @@
             <p class="muted">${esc(t('Uploads are stored as a release in {0}. Only someone with write access to this repository can publish.', st.repo || ''))}</p>
             <ol>
               <li>${t('Open <b>GitHub → Settings → Developer settings → Fine-grained tokens</b>.')}</li>
-              <li>${t('Repository access: only <code>{0}</code>. Permission: <b>Contents → Read and write</b>.', esc(st.repo || ''))}</li>
+              <li>${t('Repository access: only <code>{0}</code>. Permissions: <b>Contents → Read and write</b> and <b>Issues → Read and write</b> (for beta bug reports).', esc(st.repo || ''))}</li>
               <li>${t('Copy the token and paste it here. It is stored encrypted on this PC only.')}</li>
             </ol>
             <form class="token-form" id="tokenForm">

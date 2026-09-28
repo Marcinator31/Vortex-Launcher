@@ -271,6 +271,7 @@
     'Uploads are stored as a release in {0}. Only someone with write access to this repository can publish.': 'Uploads landen als Release in {0}. Nur wer Schreibrechte auf dieses Repo hat, kann veröffentlichen.',
     'Open <b>GitHub → Settings → Developer settings → Fine-grained tokens</b>.': 'Öffne <b>GitHub → Settings → Developer settings → Fine-grained tokens</b>.',
     'Repository access: only <code>{0}</code>. Permission: <b>Contents → Read and write</b>.': 'Repository access: nur <code>{0}</code>. Berechtigung: <b>Contents → Read and write</b>.',
+    'Repository access: only <code>{0}</code>. Permissions: <b>Contents → Read and write</b> and <b>Issues → Read and write</b> (for beta bug reports).': 'Repository access: nur <code>{0}</code>. Berechtigungen: <b>Contents → Read and write</b> und <b>Issues → Read and write</b> (für Beta-Fehlerberichte).',
     'Copy the token and paste it here. It is stored encrypted on this PC only.': 'Token kopieren und hier einfügen. Er wird nur auf diesem PC verschlüsselt gespeichert.',
     'Create token': 'Token erstellen', 'Signed in to GitHub.': 'Bei GitHub angemeldet.',
     'Signed in as <b>{0}</b> · can publish to <code>{1}</code>': 'Angemeldet als <b>{0}</b> · darf nach <code>{1}</code> veröffentlichen',

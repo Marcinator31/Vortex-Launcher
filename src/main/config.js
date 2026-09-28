@@ -27,7 +27,7 @@ module.exports = Object.freeze({
    * "Beta-Updates" und bekommen neue Client-/Addon-Builds, bevor du sie fuer
    * alle freigibst. Admins koennen das immer.
    */
-  betaTesters: [],
+  betaTesters: ['Lukas3577'],
 
   /**
    * Discord Rich Presence: Application-ID aus

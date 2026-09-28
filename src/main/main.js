@@ -136,7 +136,9 @@ function versionsOverview() { return instances.allVersions().map(instances.summa
 
 function adminVisible() {
   const acc = accounts.currentSummary();
-  const names = config.admins.map(n => String(n).toLowerCase());
+  // Beta-Tester sehen den Bereich auch: dort steht die Beta-Checkliste, und
+  // dort meldet man sich mit dem Token an. Ohne Token passiert dort nichts.
+  const names = [...config.admins, ...(config.betaTesters || [])].map(n => String(n).toLowerCase());
   return admin.hasToken() || Boolean(acc && (names.includes(acc.username.toLowerCase()) || names.includes(String(acc.uuid).toLowerCase())));
 }
 

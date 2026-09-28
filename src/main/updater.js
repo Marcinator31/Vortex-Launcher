@@ -41,7 +41,7 @@ function setup() {
   autoUpdater.on('download-progress', p => set({ status: 'downloading', progress: Math.round(p.percent || 0) }));
   autoUpdater.on('update-downloaded', i => {
     set({ status: 'ready', available: i.version, progress: 100 });
-    if (installWhenReady) setTimeout(() => autoUpdater.quitAndInstall(false, true), 1200);
+    if (installWhenReady) setTimeout(() => autoUpdater.quitAndInstall(true, true), 1200);
   });
   autoUpdater.on('error', e => {
     log(`Update check: ${e?.message || e}`, 'debug');
@@ -77,7 +77,7 @@ async function update() {
   return state;
 }
 
-function install() { if (state.status === 'ready') autoUpdater.quitAndInstall(false, true); }
+function install() { if (state.status === 'ready') autoUpdater.quitAndInstall(true, true); }
 
 function startBackground() {
   if (!app.isPackaged) return;

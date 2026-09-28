@@ -512,6 +512,8 @@ app.whenReady().then(() => {
   // Einmalige Wartung im Hintergrund -- NICHT jede Sekunde wie frueher.
   setTimeout(() => {
     try { instances.maintainAll(); } catch (e) { log(`Maintenance: ${e.message}`, 'warn'); }
+    // Klemmen alte Vortex-Dateien (Java laeuft ohne Fenster weiter), aufraeumen.
+    void (async () => { for (const v of instances.bundledVersions()) { try { if (core.exists(paths.instanceRoot(v))) await instances.syncBundledCleaning(v); } catch (_) {} } })();
     void accounts.refreshAllQuietly().then(() => core.send('accounts', { account: accounts.currentSummary(), accounts: accounts.list(), adminVisible: adminVisible() }))
       .finally(() => friends.start());
     void refreshVortexFiles().catch(() => {});

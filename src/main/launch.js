@@ -45,6 +45,32 @@ function publishSessions() {
   try { require('./friends').onSessions(sessionList()); } catch (_) {}
 }
 
+/**
+ * Minecraft zu, Java laeuft weiter? Alle 20 s nachsehen: Hat ein laufendes
+ * Spiel dreimal hintereinander KEIN Fenster mehr, ist es haengengeblieben --
+ * dann beenden. Sonst haelt es die Mod-Dateien fest, und der Launcher zeigt
+ * das Spiel weiter als "laeuft" an.
+ */
+const ohneFenster = new Map();   // pid -> Anzahl Pruefungen ohne Fenster
+setInterval(async () => {
+  if (process.platform !== 'win32') return;
+  const laufend = [...sessions.values()].filter(x => x.running && x.child && x.child.pid && Date.now() - x.startedAt > 90000);
+  if (!laufend.length) { ohneFenster.clear(); return; }
+  let procs;
+  try { procs = await require('./javaprocs').javaProcesses(); } catch (_) { return; }
+  for (const x of laufend) {
+    const p = procs.find(q => q.pid === x.child.pid);
+    if (!p) continue;
+    const n = p.window ? 0 : (ohneFenster.get(p.pid) || 0) + 1;
+    ohneFenster.set(p.pid, n);
+    if (n >= 3) {
+      log(`Minecraft ${x.version} was closed but Java kept running in the background (PID ${p.pid}) -- ending it.`);
+      try { process.kill(p.pid); } catch (_) { require('child_process').execFile('taskkill', ['/PID', String(p.pid), '/T', '/F'], { windowsHide: true }, () => {}); }
+      ohneFenster.delete(p.pid);
+    }
+  }
+}, 20000).unref?.();
+
 function friendsUrl() { try { return require('./friends').gameUrl(); } catch (_) { return ''; } }
 
 function progress(stage, label, percent = null) { send('progress', { stage, label, percent }); }
@@ -241,7 +267,9 @@ async function start({ version, serverId = null, address = null }) {
       // sind, einspielen und die alten entfernen (Windows sperrt sie vorher).
       setTimeout(() => {
         if ([...sessions.values()].some(s => s.version === v)) return;
-        try { if (instances.bundledVersions().includes(v)) instances.syncBundled(v); } catch (_) {}
+        // Nach dem Schliessen: alte Dateien entfernen. Klemmt eine, weil Java
+        // ohne Fenster weiterlaeuft, wird dieser Prozess beendet.
+        if (instances.bundledVersions().includes(v)) void instances.syncBundledCleaning(v).catch(() => {});
       }, 1500);
       core.send('versions', instances.allVersions().map(instances.summary));
       publishSessions();

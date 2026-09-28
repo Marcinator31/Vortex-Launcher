@@ -281,14 +281,30 @@ function isInstalled(version) {
   return Boolean(id) && exists(path.join(paths.instanceRoot(version), 'versions', id, `${id}.jar`));
 }
 
+/**
+ * Wie syncBundled -- aber sind Dateien gesperrt, erst haengengebliebene
+ * Minecraft-Prozesse dieser Instanz (ohne Fenster) beenden und nochmal.
+ */
+async function syncBundledCleaning(version) {
+  let sync = syncBundled(version);
+  if (sync.locked.length) {
+    const n = await require('./javaprocs').killOrphans(paths.instanceRoot(version)).catch(() => 0);
+    if (n) {
+      const again = syncBundled(version);
+      sync = { copied: sync.copied + again.copied, removed: sync.removed + again.removed, locked: again.locked, ended: n };
+    }
+  }
+  return sync;
+}
+
 /** Alles vorbereiten, was vor dem Start noetig ist. */
 async function prepare(version) {
   const v = requireVersion(version);
   ensureDir(paths.modsRoot(v));
   ensureDir(paths.resourcePacksRoot(v));
-  const sync = syncBundled(v);
+  const sync = await syncBundledCleaning(v);
   if (sync.locked.length) {
-    throw new Error(`An old Vortex file is still in use (${sync.locked.join(', ')}). Is Minecraft ${v} still running? Close it and press Play again.`);
+    throw new Error(`An old Vortex file is still in use (${sync.locked.join(', ')}). Is Minecraft ${v} still running? Close it (or end "OpenJDK Platform binary" in the Task Manager) and press Play again.`);
   }
   const fabric = await ensureFabric(v);
   return { version: v, ...fabric, ...sync, vortex: bundledVersions().includes(v), hasFabricApi: hasFabricApi(v) };
@@ -536,6 +552,6 @@ module.exports = {
   allVersions, bundledVersions, isKnown, requireVersion, addVersion, removeCustomVersion,
   bundleInfo, activeBundle, syncBundled, ensureFabric, prepare, maintainAll, summary, markPlayed,
   listMods, toggleMod, removeMod, importMods, projectMap, saveProjectMap, listPacks, removePack,
-  isAddonJar, isCoreJar, bundleEntries, packagedEntries, packagedVersions, hasFabricApi, isInstalled,
+  isAddonJar, isCoreJar, bundleEntries, packagedEntries, syncBundledCleaning, packagedVersions, hasFabricApi, isInstalled,
   modsWithIds, markChanged, consumeChanged, cachedFabricProfile, addPlaytime
 };

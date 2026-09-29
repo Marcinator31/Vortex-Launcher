@@ -221,6 +221,85 @@ async function overview(packaged) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Statistik (2.4.0)
+// ---------------------------------------------------------------------------
+//
+// Alles aus Daten, die GitHub ohnehin fuehrt -- der Launcher schickt keine
+// eigenen Nutzungsdaten. Deshalb sind es Download-Zahlen, keine Spieler:
+//   - Vortex-Dateien: wie oft jede aktuelle Jar geladen wurde (jeder Launcher
+//     laedt eine neue Version genau einmal -> ungefaehr "so viele haben sie")
+//   - Manifest-Abrufe: ungefaehr, wie oft Launcher nach Updates geschaut haben
+//   - Launcher: Downloads je Version (Setup/Portable) und Update-Pruefungen
+//   - Beta-Fehlerberichte: Issues "[Beta-Bug] ..." und Dateien in beta-reports/
+
+function jarInfo(name) {
+  const m = String(name).match(/^(.*)-(\d+\.\d+\.\d+(?:[-+][\w.+-]*)?)\.jar$/);
+  if (!m) return null;
+  const id = /addon/i.test(m[1]) ? 'addon' : /vortexclient|client/i.test(m[1]) ? 'client' : 'extra';
+  const mc = (m[2].match(/\+(\d+\.\d+(?:\.\d+)?)$/) || [])[1] || '';
+  return { kind: id, version: m[2].replace(/\+.*$/, ''), mc };
+}
+
+async function stats() {
+  if (!readToken()) throw new Error('Sign in with your GitHub token first.');
+  const [rel, releases, issues, reportFiles] = await Promise.all([
+    release(),
+    gh('GET', `/repos/${REPO}/releases?per_page=30`).catch(() => []),
+    gh('GET', `/repos/${REPO}/issues?state=all&per_page=100&sort=created&direction=desc`).catch(() => []),
+    gh('GET', `/repos/${REPO}/contents/beta-reports`).catch(() => [])
+  ]);
+
+  const dateien = [];
+  let manifestAbrufe = 0, betaAbrufe = 0;
+  for (const a of rel.assets || []) {
+    if (a.name === 'manifest.json') { manifestAbrufe = a.download_count || 0; continue; }
+    if (a.name === BETA) { betaAbrufe = a.download_count || 0; continue; }
+    const j = jarInfo(a.name);
+    if (!j) continue;
+    dateien.push({ file: a.name, kind: j.kind, version: j.version, mc: j.mc, downloads: a.download_count || 0, uploadedAt: a.created_at, size: a.size });
+  }
+  dateien.sort((a, b) => ({ client: 0, addon: 1, extra: 2 }[a.kind] - { client: 0, addon: 1, extra: 2 }[b.kind]) || b.downloads - a.downloads);
+
+  const launcher = (Array.isArray(releases) ? releases : [])
+    .filter(r => r.tag_name !== config.filesTag && !r.draft)
+    .map(r => {
+      const exe = (r.assets || []).filter(a => /\.exe$/i.test(a.name));
+      const yml = (r.assets || []).find(a => /^latest\.yml$/i.test(a.name));
+      return {
+        version: String(r.tag_name).replace(/^v/i, ''),
+        publishedAt: r.published_at,
+        downloads: exe.reduce((n, a) => n + (a.download_count || 0), 0),
+        setup: exe.filter(a => /setup/i.test(a.name)).reduce((n, a) => n + (a.download_count || 0), 0),
+        portable: exe.filter(a => !/setup/i.test(a.name)).reduce((n, a) => n + (a.download_count || 0), 0),
+        updateChecks: yml?.download_count || 0,
+        url: r.html_url
+      };
+    })
+    .slice(0, 12);
+
+  const bugs = (Array.isArray(issues) ? issues : []).filter(i => !i.pull_request && /^\[Beta-Bug\]/.test(i.title || ''));
+  const berichtDateien = (Array.isArray(reportFiles) ? reportFiles : []).filter(f => /\.md$/i.test(f.name));
+
+  return {
+    files: dateien,
+    manifestChecks: manifestAbrufe,
+    betaChecks: betaAbrufe,
+    launcher,
+    launcherTotal: launcher.reduce((n, r) => n + r.downloads, 0),
+    beta: {
+      open: bugs.filter(i => i.state === 'open').length,
+      closed: bugs.filter(i => i.state === 'closed').length,
+      files: berichtDateien.length,
+      latest: [
+        ...bugs.slice(0, 8).map(i => ({ title: i.title.replace(/^\[Beta-Bug\]\s*/, ''), state: i.state, url: i.html_url, at: i.created_at })),
+        ...berichtDateien.slice(-4).reverse().map(f => ({ title: f.name.replace(/\.md$/, ''), state: 'file', url: f.html_url, at: (f.name.match(/^\d{4}-\d{2}-\d{2}/) || [''])[0] }))
+      ].slice(0, 10)
+    },
+    fetchedAt: new Date().toISOString()
+  };
+}
+
 /** Jar pruefen, bevor sie hochgeladen wird. */
 function inspectJar(file) {
   const f = String(file || '');
@@ -305,4 +384,4 @@ async function deleteNews(id) {
   return { news: manifest.news };
 }
 
-module.exports = { status, signIn, signOut, overview, inspectJar, publish, unpublish, promote, postNews, deleteNews, hasToken: () => Boolean(readToken()), gh };
+module.exports = { status, signIn, signOut, overview, stats, inspectJar, publish, unpublish, promote, postNews, deleteNews, hasToken: () => Boolean(readToken()), gh };

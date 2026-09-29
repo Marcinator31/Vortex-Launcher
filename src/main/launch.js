@@ -75,6 +75,84 @@ function friendsUrl() { try { return require('./friends').gameUrl(); } catch (_)
 
 function progress(stage, label, percent = null) { send('progress', { stage, label, percent }); }
 
+// ---------------------------------------------------------------------------
+// Ladefortschritt nach dem Start (2.4.0)
+// ---------------------------------------------------------------------------
+//
+// Ab der ersten Zeile des Spiels bis zum Titelbildschirm (bzw. bis zum Server)
+// vergehen oft 20-60 Sekunden. Die Zeilen im Log verraten, wo das Spiel
+// gerade steht. Dazu die Dauer der letzten Starts dieser Version: daraus wird
+// ein gleichmaessig laufender Balken, der nie rueckwaerts springt.
+
+const PHASEN = [
+  { re: /Loading Minecraft .* with Fabric Loader/i, label: 'Fabric is starting', pct: 8 },
+  { re: /Loading \d+ mods?:/i, label: 'Loading mods', pct: 15, mods: true },
+  { re: /SpongePowered MIXIN/i, label: 'Preparing mods', pct: 22 },
+  { re: /Setting user:|Backend library: LWJGL/i, label: 'Opening the window', pct: 35 },
+  { re: /Reloading ResourceManager/i, label: 'Loading resources', pct: 45 },
+  { re: /Created: \d+x\d+x\d+ minecraft:textures\/atlas\/blocks/i, label: 'Loading textures', pct: 65 },
+  { re: /Sound engine started|OpenAL initialized/i, label: 'Starting sound', pct: 82, fastFertig: true },
+  { re: /Created: \d+x\d+x\d+ minecraft:textures\/atlas\/(gui|particles)/i, label: 'Almost there', pct: 88 },
+  { re: /Connecting to [^,]+, ?\d+/i, label: 'Connecting to the server', pct: 92, server: true },
+  { re: /Loaded \d+ advancements|\[CHAT\]|Joining world|Started \d+ worker threads/i, label: 'In the world', pct: 100, fertig: true }
+];
+const startzeitenFile = () => path.join(paths.dataRoot, 'startup-times.json');
+
+function ladeBeobachter(version, mitServer) {
+  const zeiten = core.loadJson(startzeitenFile(), {}) || {};
+  const erwartet = Math.max(8000, Math.min(180000, Number(zeiten[version]) || 35000));
+  const beginn = Date.now();
+  let prozent = 3, label = 'Minecraft is starting', letzteMarke = beginn, fastFertig = false, fertig = false, mods = null, verbindet = false;
+  const melden = () => progress('loading', mods && label === 'Loading mods' ? `Loading ${mods} mods` : label, Math.min(99, Math.round(prozent)));
+  const abschliessen = (merken = true) => {
+    if (fertig) return;
+    fertig = true;
+    clearInterval(uhr);
+    const dauer = Date.now() - beginn;
+    if (merken) try {
+      // Gleitender Mittelwert, damit ein Ausreisser (z. B. erster Start) die Schaetzung nicht verdirbt
+      const alt = Number(zeiten[version]) || dauer;
+      zeiten[version] = Math.round(alt * 0.6 + dauer * 0.4);
+      core.writeJson(startzeitenFile(), zeiten);
+    } catch (_) {}
+    progress('running', 'Minecraft is running', 100);
+  };
+  const uhr = setInterval(() => {
+    if (fertig) return;
+    const vergangen = Date.now() - beginn;
+    const nachZeit = Math.min(95, vergangen / erwartet * 100);
+    if (nachZeit > prozent) prozent = nachZeit;
+    // Titelbildschirm erreicht: Sound laeuft und seit 4 s keine neue Phase.
+    // Mit Server: erst, wenn die Welt da ist (oder 25 s nach "verbinde").
+    if (fastFertig && !mitServer && Date.now() - letzteMarke > 4000) { abschliessen(); return; }
+    if (verbindet && Date.now() - letzteMarke > 25000) { abschliessen(); return; }
+    // Fehlt eine erwartete Zeile (andere Fassung, andere Mods): nach 20 s ohne
+    // neue Phase gilt das Spiel als geladen, sobald die Ressourcen durch sind.
+    if (!verbindet && label !== 'Minecraft is starting' && prozent >= 45 && Date.now() - letzteMarke > 20000) { abschliessen(); return; }
+    if (vergangen > 240000) { abschliessen(); return; }
+    melden();
+  }, 1000);
+  uhr.unref?.();
+  return {
+    zeile(text) {
+      if (fertig) return;
+      for (const ph of PHASEN) {
+        if (!ph.re.test(text)) continue;
+        if (ph.mods) { const m = text.match(/Loading (\d+) mods?/i); if (m) mods = m[1]; }
+        if (ph.fertig && (mitServer ? verbindet : fastFertig)) { abschliessen(); return; }
+        if (ph.fertig) continue;
+        if (ph.server) verbindet = true;
+        if (ph.fastFertig) fastFertig = true;
+        letzteMarke = Date.now();
+        if (ph.pct >= prozent) { prozent = ph.pct; label = ph.label; }
+        melden();
+        return;
+      }
+    },
+    ende: () => abschliessen(false)
+  };
+}
+
 /** "a b 'c d'" -> ['a','b','c d']; -Xmx/-Xms werden ignoriert (Einstellung). */
 function parseArgs(text) {
   const out = [];
@@ -115,7 +193,7 @@ const JVM_PRESETS = {
 
 const STAGES = { assets: 'Downloading assets', natives: 'Preparing natives', classes: 'Downloading libraries', 'assets-copy': 'Copying assets' };
 
-async function start({ version, serverId = null, address = null }) {
+async function start({ version, serverId = null, address = null, safe = false }) {
   if (launching) throw new Error('A launch is already in progress.');
   const account = accounts.current();
   if (!account) throw new Error('Sign in with your Microsoft account first.');
@@ -125,6 +203,7 @@ async function start({ version, serverId = null, address = null }) {
   }
   const v = instances.requireVersion(version);
   const cfg = settings.get();
+  if (safe && [...sessions.values()].some(s => s.version === v)) throw new Error('Close Minecraft first -- safe mode needs the instance to itself.');
   // Server aus der Liste -- oder direkt eine Adresse (Einladungslink vortex://join/...)
   const direkt = address ? servers.normalizeAddress(address) : null;
   const server = serverId ? servers.byId(serverId) : direkt ? { id: null, name: direkt, address: direkt } : null;
@@ -156,8 +235,9 @@ async function start({ version, serverId = null, address = null }) {
     }
 
     // Pruefung vor dem Start: fehlende, doppelte oder unvertraegliche Mods
-    progress('prepare', 'Checking your mods', null);
-    try {
+    // (im abgesicherten Modus nicht -- da laufen ohnehin nur die Vortex-Dateien)
+    if (!safe) progress('prepare', 'Checking your mods', null);
+    if (!safe) try {
       const pf = await preflight.run(v, (id, ver) => modrinth.installMod(id, ver));
       if (pf.installed.length) notify('success', `Missing mods installed: ${pf.installed.join(', ')}`);
       if (pf.disabled.length) notify('info', `Installed twice, older copy disabled: ${pf.disabled.join(', ')}`);
@@ -165,7 +245,7 @@ async function start({ version, serverId = null, address = null }) {
     } catch (e) { log(`Mod check skipped: ${e.message}`, 'warn'); }
 
     // Mod-Updates automatisch einspielen (Einstellung)
-    if (cfg.autoUpdateMods) {
+    if (cfg.autoUpdateMods && !safe) {
       progress('prepare', 'Updating mods', null);
       try {
         const r = await modrinth.applyUpdates(v);
@@ -179,6 +259,12 @@ async function start({ version, serverId = null, address = null }) {
       progress('prepare', 'Backing up your worlds', null);
       try { const n = await media.backupAll(v, 'before update'); if (n) log(`${n} world(s) backed up before the update.`); }
       catch (e) { log(`Backup skipped: ${e.message}`, 'warn'); }
+    }
+
+    if (safe) {
+      progress('prepare', 'Safe mode: switching your own mods off', null);
+      const n = require('./safemode').enter(v);
+      notify('info', n ? `Safe mode: ${n} of your mods are off for this start and come back afterwards.` : 'Safe mode: you have no extra mods -- starting normally.');
     }
 
     progress('java', 'Checking Java', null);
@@ -197,10 +283,12 @@ async function start({ version, serverId = null, address = null }) {
       log(text, 'debug');
     });
     const output = [];                    // letzte Zeilen fuer die Absturz-Analyse
+    let laden = null;
     client.on('data', data => {
-      if (!sawGameOutput) { sawGameOutput = true; progress('running', 'Minecraft is running', 100); }
+      if (!sawGameOutput) { sawGameOutput = true; laden = ladeBeobachter(v, Boolean(server)); }
       for (const line of String(data).split(/\r?\n/)) {
         if (!line.trim()) continue;
+        try { laden?.zeile(line); } catch (_) {}
         output.push(line);
         if (output.length > 600) output.splice(0, output.length - 600);
         log(line, /\b(ERROR|FATAL|Exception)\b/.test(line) ? 'error' : 'game');
@@ -236,7 +324,10 @@ async function start({ version, serverId = null, address = null }) {
     progress('download', 'Checking game files', null);
     log(`Launching Minecraft ${v} (${prep.profileId}) as ${account.username} with ${cfg.memoryMax} MB RAM.`);
     const child = await client.launch(options);
-    if (!child) throw new Error(lastError || 'Minecraft could not be started. Open the console for details.');
+    if (!child) {
+      if (safe) { try { require('./safemode').leave(v); } catch (_) {} }
+      throw new Error(lastError || 'Minecraft could not be started. Open the console for details.');
+    }
 
     const id = `${acId}:${Date.now()}`;
     const launchedAt = Date.now();
@@ -245,6 +336,7 @@ async function start({ version, serverId = null, address = null }) {
     discord.update({ state: 'playing', version: v, client: info.clientVersion, server: server?.name, since: launchedAt });
     sessions.set(id, session);
     instances.markPlayed(v);
+    if (server) { try { servers.markPlayed(server.address); } catch (_) {} }
     publishSessions();
     progress('started', server ? `Joining ${server.name}` : 'Minecraft is starting', 100);
     notify('success', server ? `Minecraft ${v} is starting and joins ${server.name}.` : `Minecraft ${v} is starting.`);
@@ -261,7 +353,9 @@ async function start({ version, serverId = null, address = null }) {
 
     child.on('close', code => {
       try { shotWatcher && shotWatcher.close(); } catch (_) {}
+      try { laden?.ende(); } catch (_) {}
       sessions.delete(id);
+      if (safe) { try { require('./safemode').leave(v); core.send('versions', instances.allVersions().map(instances.summary)); } catch (e) { log(`Safe mode: ${e.message}`, 'warn'); } }
       try { instances.addPlaytime(v, Date.now() - launchedAt); } catch (_) {}
       // Waehrend des Spiels geladene Updates: jetzt, wo die alten Jars frei
       // sind, einspielen und die alten entfernen (Windows sperrt sie vorher).
@@ -287,6 +381,7 @@ async function start({ version, serverId = null, address = null }) {
             if (cr.enabled()) { reported = 'pending'; cr.send(analysis).then(r => log(`Crash report ${r.id} sent automatically.`)).catch(e => log(`Crash report: ${e.message}`, 'warn')); }
           } catch (_) {}
         }
+        if (analysis) analysis.safeMode = Boolean(safe);
         send('crash', { version: v, code, crashReports: exists(paths.crashReportsRoot(v)), analysis, reported });
       } else {
         log(`Minecraft ${v} (${account.username}) closed.`);
@@ -344,4 +439,4 @@ function stop(id) {
 
 function isLaunching() { return launching; }
 
-module.exports = { start, stop, sessionList, isLaunching, lastCrash: () => lastCrash };
+module.exports = { start, stop, sessionList, isLaunching, lastCrash: () => lastCrash, ladeBeobachter };

@@ -1,6 +1,6 @@
 {
   "name": "vortex-launcher",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "description": "Vortex Client Launcher - Minecraft with the Vortex Client, Fabric, mods and servers",
   "main": "src/main/main.js",
   "author": "Vortex Client",

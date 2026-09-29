@@ -226,10 +226,17 @@ function registerIpc() {
   handle('versions:select', v => { instances.requireVersion(v); return { settings: settings.set({ selectedVersion: v }) }; });
   handle('versions:add', async v => { const added = await instances.addVersion(v); settings.set({ selectedVersion: added }); return { version: added, versions: versionsOverview() }; });
   handle('versions:remove', v => { instances.removeCustomVersion(v); if (settings.get().selectedVersion === v) settings.set({ selectedVersion: instances.allVersions()[0] }); return { versions: versionsOverview(), settings: settings.get() }; });
-  handle('versions:repair', async v => { const r = await instances.prepare(v); notify('success', `Minecraft ${r.version} checked: Fabric ${r.loaderVersion}, ${r.copied} file(s) updated.`); return { versions: versionsOverview() }; });
+  handle('versions:repair', async v => {
+    if (launch.sessionList().some(x => x.version === v)) throw new Error('Close Minecraft first -- files in use cannot be checked.');
+    const r = await instances.prepare(v);
+    const deep = await require('./repair').run(v, p => core.send('repair', { version: v, ...p }));
+    deep.fabric = r.loaderVersion;
+    deep.vortexFiles = r.copied;
+    return { versions: versionsOverview(), report: deep };
+  });
 
   // Spielen
-  handle('launch:start', async (version, serverId, address) => launch.start({ version, serverId, address }));
+  handle('launch:start', async (version, serverId, address, opts) => launch.start({ version, serverId, address, safe: Boolean(opts && opts.safe) }));
   handle('launch:stop', id => ({ stopped: launch.stop(id) }));
 
   // Mods
@@ -266,6 +273,10 @@ function registerIpc() {
   handle('servers:add', s => ({ server: servers.add(s || {}), servers: servers.list() }));
   handle('servers:remove', id => { servers.remove(id); return { servers: servers.list() }; });
   handle('servers:status', (id, force) => servers.status(id, force).then(status => ({ status })));
+  handle('servers:favorite', (id, value) => { servers.setFavorite(id, value); return { servers: servers.list() }; });
+
+  // Log teilen (mclo.gs) -- 2.4.0
+  handle('logs:share', (v, what) => require('./logshare').share(v, what));
 
   // Einstellungen
   handle('settings:set', patch => {
@@ -340,6 +351,7 @@ function registerIpc() {
     for (const v of instances.packagedVersions()) packaged[v] = instances.packagedEntries(v);
     return admin.overview(packaged);
   });
+  handle('admin:stats', () => admin.stats());
   handle('admin:pickJars', async () => {
     const pick = await dialog.showOpenDialog(core.getMainWindow(), { title: 'Choose Vortex jars', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Fabric mods', extensions: ['jar'] }] });
     if (pick.canceled) return { jars: [] };
@@ -511,6 +523,8 @@ app.whenReady().then(() => {
   });
   createWindow();
   log(`Vortex Client Launcher ${app.getVersion()} started.`);
+  try { servers.startHistory(); } catch (e) { log(`Server history: ${e.message}`, 'warn'); }
+  try { require('./safemode').restoreLeftovers(); } catch (e) { log(`Safe mode cleanup: ${e.message}`, 'warn'); }
   // Einmalige Wartung im Hintergrund -- NICHT jede Sekunde wie frueher.
   setTimeout(() => {
     try { instances.maintainAll(); } catch (e) { log(`Maintenance: ${e.message}`, 'warn'); }

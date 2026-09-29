@@ -35,7 +35,7 @@ contextBridge.exposeInMainWorld('vortex', {
     repair: v => call('versions:repair', v)
   },
   launch: {
-    start: (version, serverId, address) => call('launch:start', version, serverId || null, address || null),
+    start: (version, serverId, address, opts) => call('launch:start', version, serverId || null, address || null, opts || null),
     stop: id => call('launch:stop', id)
   },
   mods: {
@@ -99,7 +99,8 @@ contextBridge.exposeInMainWorld('vortex', {
     list: () => call('servers:list'),
     add: s => call('servers:add', s),
     remove: id => call('servers:remove', id),
-    status: (id, force) => call('servers:status', id, Boolean(force))
+    status: (id, force) => call('servers:status', id, Boolean(force)),
+    favorite: (id, value) => call('servers:favorite', id, Boolean(value))
   },
   settings: {
     set: patch => call('settings:set', patch),
@@ -107,6 +108,7 @@ contextBridge.exposeInMainWorld('vortex', {
     inspectJava: p => call('settings:inspectJava', p)
   },
   crash: { report: () => call('crash:report') },
+  logs: { share: (version, what) => call('logs:share', version, what) },
   friends: {
     status: () => call('friends:status'),
     req: (op, args) => call('friends:req', op, args || {}),
@@ -135,7 +137,8 @@ contextBridge.exposeInMainWorld('vortex', {
     unpublish: (version, id) => call('admin:unpublish', version, id),
     promote: (version, id) => call('admin:promote', version, id),
     postNews: (title, body) => call('admin:postNews', title, body),
-    deleteNews: id => call('admin:deleteNews', id)
+    deleteNews: id => call('admin:deleteNews', id),
+    stats: () => call('admin:stats')
   },
   betatest: {
     view: () => call('betatest:view'),
@@ -171,6 +174,8 @@ contextBridge.exposeInMainWorld('vortex', {
     friends: on('friends'),
     friendsNotify: on('friends-notify'),
     friendsOpen: on('friends-open'),
-    betatest: on('betatest')
+    betatest: on('betatest'),
+    serverHistory: on('serverHistory'),
+    repair: on('repair')
   }
 });

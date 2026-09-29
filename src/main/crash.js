@@ -153,6 +153,25 @@ function analyze(ctx) {
     add({ kind: 'mod', severity: 'error', title: 'A mod is not made for this version', detail: `${m[1]}: ${m[2].trim()}. Update your mods or disable the ones you added recently.`, actions: [{ type: 'checkUpdates', label: 'Check mod updates' }, { type: 'openMods', label: 'Open mods' }] });
   }
 
+  // --- 9. Schuldige Mod aus dem Stacktrace (2.4.0) ------------------------------
+  // Auch wenn oben schon etwas gefunden wurde: der Stacktrace zeigt, WELCHE Mod
+  // gerade lief, als es knallte. Das ist bei "unbekannten" Abstuerzen oft der
+  // einzige Hinweis.
+  try {
+    for (const v of verdaechtige(reportText || `${logText}\n${outText}`, all, mods, managed).slice(0, 2)) {
+      const name = v.mod.name || v.mod.id || v.mod.file;
+      if (findings.some(f => f.title.includes(name))) continue;
+      if (v.managed) {
+        if (!findings.some(f => f.kind === 'vortex')) {
+          add({ kind: 'vortex', severity: 'warn', title: 'The crash happened inside the Vortex Client', detail: `${v.why} Send the crash report to the Vortex team -- and try once in safe mode to rule out your other mods.`, actions: [{ type: 'safeMode', label: 'Start in safe mode' }] });
+        }
+        continue;
+      }
+      add({ kind: 'suspect', severity: 'error', title: `${name} is the most likely cause`, detail: v.why,
+        actions: v.mod.enabled ? [{ type: 'disableRestart', file: v.mod.file, label: `Disable ${name} and start again` }, { type: 'disableMod', file: v.mod.file, label: 'Only disable' }] : [] });
+    }
+  } catch (_) { /* Hinweise sind Zugabe -- nie die Analyse kippen */ }
+
   // --- Zusammenfassung aus dem Crash-Report -------------------------------------
   const description = (reportText.match(/^Description: (.+)$/m) || [])[1] || null;
   const exception = (reportText.match(/^(?:[a-z0-9_$.]+\.)+[A-Z][A-Za-z0-9_$]*(?:Exception|Error)[^\n]*/m) || [])[0] || null;
@@ -169,4 +188,80 @@ function analyze(ctx) {
   };
 }
 
-module.exports = { analyze };
+// ---------------------------------------------------------------------------
+// Verdaechtige Mods (2.4.0)
+// ---------------------------------------------------------------------------
+
+const FREMD = /^(java|javax|jdk|sun|com\.sun|net\.minecraft|com\.mojang|org\.spongepowered|net\.fabricmc|org\.lwjgl|io\.netty|it\.unimi|com\.google|org\.apache|org\.slf4j|com\.llamalad7|org\.objectweb|kotlin|org\.joml|oshi|com\.ibm)\./;
+
+/**
+ * Welche Mod steckt im Fehler? Punkte aus vier Quellen:
+ *   - "Suspected Mods:" im Crash-Report (Minecraft/Fabric schreiben das selbst)
+ *   - Jar-Namen hinter Stack-Zeilen im Log ("~[sodium-0.6.jar:?]")
+ *   - Mixin-Handler mit Mod-ID ("handler$zbc000$sodium$...")
+ *   - Klassen der ersten Stack-Zeilen: in welcher Jar liegen sie?
+ */
+function verdaechtige(stackText, all, mods, managed) {
+  const aktiv = mods.filter(m => m.file);
+  const punkte = new Map();
+  const gruende = new Map();
+  const gib = (m, n, grund) => {
+    if (!m) return;
+    punkte.set(m.file, (punkte.get(m.file) || 0) + n);
+    if (!gruende.has(m.file)) gruende.set(m.file, grund);
+  };
+  const perId = id => aktiv.find(m => m.id === id || (m.provides || []).includes(id));
+
+  let m;
+  const susRe = /Suspected Mods?:\s*([^\n]+)/gi;
+  while ((m = susRe.exec(all))) {
+    for (const teil of m[1].split(/,\s*/)) {
+      const t = teil.match(/\(([a-z0-9_-]{2,64})\)/i);
+      if (t) gib(perId(t[1]), 6, 'Minecraft names it as the suspected mod in the crash report.');
+    }
+  }
+
+  const jarRe = /~?\[([^\]\s:]+\.jar)(?::[^\]]*)?\]/g;
+  let jarTreffer = 0;
+  while ((m = jarRe.exec(stackText)) && jarTreffer < 40) {
+    const name = m[1].toLowerCase();
+    const mod = aktiv.find(x => x.file.toLowerCase().replace(/\.disabled$/, '') === name);
+    if (mod) { gib(mod, 2, 'It appears in the error\'s stack trace.'); jarTreffer++; }
+  }
+
+  const mixRe = /\$[a-z]{3}\d{3}\$([a-z0-9_]{2,64})\$/g;
+  while ((m = mixRe.exec(stackText))) gib(perId(m[1]), 3, 'One of its changes to the game was running when it crashed.');
+
+  // Klassen der ersten Stack-Zeilen einer Jar zuordnen (nur Mods, die nicht schon klar sind)
+  const klassen = [];
+  const atRe = /^\s*at ([\w$.]+)\.[\w$<>]+\(/gm;
+  while ((m = atRe.exec(stackText)) && klassen.length < 40) {
+    const cls = m[1].replace(/\$.*$/, '');
+    if (!FREMD.test(cls) && !klassen.includes(cls)) klassen.push(cls);
+  }
+  if (klassen.length) {
+    const zip = require('./zip');
+    for (const mod of aktiv) {
+      if (!mod.enabled || !mod.path) continue;
+      let eintraege;
+      try {
+        const buf = fs.readFileSync(mod.path);
+        eintraege = zip.readEntries(buf);
+      } catch (_) { continue; }
+      if (!eintraege) continue;
+      klassen.forEach((cls, i) => {
+        if (eintraege.has(`${cls.replace(/\./g, '/')}.class`)) gib(mod, i === 0 ? 4 : 2, 'Its code is in the error\'s stack trace.');
+      });
+    }
+  }
+
+  return [...punkte.entries()]
+    .filter(([, n]) => n >= 3)
+    .sort((a, b) => b[1] - a[1])
+    .map(([file, n]) => {
+      const mod = aktiv.find(x => x.file === file);
+      return { mod, score: n, why: gruende.get(file), managed: managed.has(file.toLowerCase()) };
+    });
+}
+
+module.exports = { analyze, verdaechtige };

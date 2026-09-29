@@ -71,7 +71,7 @@
   };
   const selected = () => S.settings.selectedVersion;
   const versionInfo = v => S.versions.find(x => x.version === v) || null;
-  const busyStages = new Set(['auth', 'prepare', 'java', 'download']);
+  const busyStages = new Set(['auth', 'prepare', 'java', 'download', 'loading']);
   const isBusy = () => S.starting || busyStages.has(S.progress.stage);
   const mySession = () => S.account && S.sessions.find(s => s.accountId === S.account.id);
 
@@ -183,6 +183,7 @@
     try { await navigator.clipboard.writeText(text); toast('success', t('Console copied to the clipboard.')); } catch (e) { fail(e); }
   };
   $('#consoleFile').onclick = () => call(api.open('log')).catch(fail);
+  $('#consoleShare').onclick = e => busy(e.currentTarget, () => shareLog(selected(), 'latest'));
   $('#consoleFilter').onclick = e => {
     const b = e.target.closest('button[data-value]');
     if (!b) return;
@@ -485,7 +486,7 @@
   function renderQuickServers() {
     $('#quickServers').innerHTML = S.servers.slice(0, 3).map(s => `
       <div class="qs">${favHtml(s)}
-        <div class="qs-body"><strong>${esc(s.name)}</strong><span>${serverStatusLine(s)}</span></div>
+        <div class="qs-body"><strong>${s.favorite ? icon('star') : ''}${esc(s.name)}</strong><span>${serverStatusLine(s)}${friendsOn(s).length ? ` · ${esc(t('{0} friend(s) here', friendsOn(s).length))}` : ''}</span></div>
         <button class="btn small" data-join="${esc(s.id)}">${icon('play')}${esc(t('Join'))}</button>
       </div>`).join('') || `<p class="muted small">${esc(t('No servers yet.'))}</p>`;
   }
@@ -552,6 +553,7 @@
     const { el, close } = openModal(`
       <h3>${icon('alert')} ${esc(t('Why Minecraft {0} crashed', a.version))}</h3>
       <p>${esc(a.code != null ? t('Exit code {0}.', a.code) : '')} ${esc(t('The launcher checked the crash report and the log:'))}</p>
+      ${a.safeMode ? `<div class="finding warn">${icon('info')}<div><strong>${esc(t('It crashed in safe mode too'))}</strong><p>${esc(t('Only the Vortex files and the Fabric API were running -- so it is not one of your own mods. Check the graphics driver, Java and RAM, or send the report to the Vortex team.'))}</p></div></div>` : ''}
       <div class="findings">${findings.map((f, i) => `
         <div class="finding ${f.severity === 'warn' ? 'warn' : ''}">${icon(f.severity === 'warn' ? 'info' : 'alert')}
           <div><strong>${esc(tr(f.title))}</strong><p>${esc(tr(f.detail || ''))}</p>
@@ -561,6 +563,8 @@
       <div class="row-btns">
         <button class="btn ghost" data-x="console">${icon('terminal')}${esc(t('Console'))}</button>
         ${a.report ? `<button class="btn ghost" data-x="reports">${icon('folder')}${esc(t('Crash reports'))}</button>` : ''}
+        <button class="btn ghost" data-x="share" title="${esc(t('Uploads the log to mclo.gs and copies the link -- for support in Discord. Your Windows name and accounts are removed first.'))}">${icon('external')}${esc(t('Share log'))}</button>
+        ${a.safeMode ? '' : `<button class="btn ghost" data-x="safe" title="${esc(t('Starts once with only Vortex and the Fabric API. Your mods come back afterwards.'))}">${icon('shield')}${esc(t('Safe mode'))}</button>`}
         ${S.crashReports ? `<button class="btn ghost" data-x="send" ${a.sent ? 'disabled' : ''} title="${esc(t('Anonymous: versions, mods and the crash report excerpt -- no name, no IP.'))}">${icon('upload')}${esc(a.sent ? t('Report sent') : t('Send report to Vortex'))}</button>` : ''}
         <span class="grow"></span>
         <button class="btn" data-x="close">${esc(t('Close'))}</button>
@@ -571,6 +575,8 @@
         if (x.dataset.x === 'console') { close(); setConsole(true); }
         if (x.dataset.x === 'reports') call(api.open('crashes', a.version)).catch(fail);
         if (x.dataset.x === 'close') close();
+        if (x.dataset.x === 'share') await busy(x, () => shareLog(a.version, a.report ? 'crash' : 'latest'));
+        if (x.dataset.x === 'safe') { close(); startSafeMode(a.version); }
         if (x.dataset.x === 'send') {
           await busy(x, async () => { await call(api.crash.report()); a.sent = true; toast('success', t('Thanks! The report was sent.')); });
           x.disabled = true;
@@ -584,8 +590,35 @@
     });
   }
 
+  async function shareLog(version, what) {
+    try {
+      const r = await call(api.logs.share(version, what));
+      toast('success', t('Log link copied: {0}', r.url), [{ label: t('Open'), run: () => api.openExternal(r.url) }]);
+    } catch (e) { fail(e); }
+  }
+
+  async function startSafeMode(version) {
+    if (!(await confirmDialog({ title: t('Start in safe mode?'), text: t('Minecraft {0} starts once with only the Vortex files and the Fabric API. Your other mods are switched off for this start and come back when you close the game.', version), ok: t('Start') }))) return;
+    showPage('home');
+    if (isBusy() || mySession()) { toast('info', t('Close Minecraft first.')); return; }
+    S.starting = true;
+    S.progress = { stage: 'auth', label: 'Checking your account', percent: null };
+    renderPlay();
+    try { await call(api.launch.start(version, null, null, { safe: true })); }
+    catch (e) { toast('error', e.message, [{ label: t('Open console'), run: () => setConsole(true) }]); S.progress = { stage: 'idle' }; }
+    finally { S.starting = false; renderPlay(); }
+  }
+
   async function runCrashAction(action, version, close) {
     switch (action.type) {
+      case 'disableRestart':
+        await call(api.mods.toggle(version, action.file));
+        refreshVersions();
+        close();
+        toast('success', t('Mod disabled -- starting again.'));
+        play(null, version);
+        break;
+      case 'safeMode': close(); startSafeMode(version); break;
       case 'disableMod':
         await call(api.mods.toggle(version, action.file));
         toast('success', t('Mod disabled. Press Play to try again.'));
@@ -620,6 +653,37 @@
   // -----------------------------------------------------------------------
   // Versionen
   // -----------------------------------------------------------------------
+  async function repairVersion(btn, version) {
+    if (!(await confirmDialog({ title: t('Check Minecraft {0} thoroughly?', version), text: t('Every game file is compared with its checksum. Broken files are removed and downloaded again at the next start; broken mods are switched off. Worlds, settings and screenshots are not touched. This takes about a minute.'), ok: t('Check now') }))) return;
+    const { el, close } = openModal(`<h3>${icon('refresh')} ${esc(t('Checking Minecraft {0}', version))}</h3>
+      <p class="muted" id="rpLabel">${esc(t('Preparing…'))}</p><div class="bar"><i id="rpBar" style="width:0%"></i></div>`);
+    const off = api.on.repair(p => {
+      if (!p || p.version !== version) return;
+      const l = $('#rpLabel', el), b = $('#rpBar', el);
+      if (l) l.textContent = `${tr(p.label || '')}${p.percent != null ? ` · ${p.percent}%` : ''}`;
+      if (b && p.percent != null) b.style.width = `${p.percent}%`;
+    });
+    try {
+      const res = await call(api.versions.repair(version));
+      S.versions = res.versions;
+      renderVersions();
+      close();
+      const r = res.report || {};
+      const zeilen = [
+        t('{0} files checked in {1} s.', fmtNum(r.checked || 0), Math.max(1, Math.round((r.durationMs || 0) / 1000))),
+        r.replaced?.length ? t('{0} broken file(s) removed -- they are downloaded again at the next start.', r.replaced.length) : t('All game files are fine.'),
+        r.disabledMods?.length ? t('Broken mods switched off: {0}', r.disabledMods.join(', ')) : '',
+        r.missingIndex ? t('The asset list is missing -- it is downloaded at the next start.') : '',
+        t('Fabric {0}, Vortex files: {1} updated.', r.fabric || '?', r.vortexFiles || 0)
+      ].filter(Boolean);
+      const { el: e2, close: c2 } = openModal(`<h3>${icon('check')} ${esc(t('Minecraft {0} checked', version))}</h3>
+        <ul class="plain">${zeilen.map(z => `<li>${esc(z)}</li>`).join('')}</ul>
+        ${r.replaced?.length ? `<details class="excerpt"><summary>${esc(t('Show files'))}</summary><pre>${esc(r.replaced.slice(0, 200).join('\n'))}</pre></details>` : ''}
+        <div class="row-btns"><button class="btn" data-ok>${esc(t('OK'))}</button></div>`);
+      $('[data-ok]', e2).onclick = c2;
+    } catch (e) { close(); fail(e); }
+    finally { off(); }
+  }
   function renderVersions() {
     $('#versionGrid').innerHTML = S.versions.map(x => {
       const sel = x.version === selected();
@@ -651,7 +715,7 @@
     const s = e.target.closest('[data-vselect]');
     if (s) { await selectVersion(s.dataset.vselect); toast('success', t('Minecraft {0} selected.', s.dataset.vselect)); return; }
     const r = e.target.closest('[data-vrepair]');
-    if (r) { await busy(r, async () => { const res = await call(api.versions.repair(r.dataset.vrepair)); S.versions = res.versions; }); renderVersions(); return; }
+    if (r) { await repairVersion(r, r.dataset.vrepair); return; }
     const x = e.target.closest('[data-vexport]');
     if (x) { exportDialog(x.dataset.vexport); return; }
     const d = e.target.closest('[data-vremove]');
@@ -1512,17 +1576,44 @@
   // Server
   // -----------------------------------------------------------------------
   function pingClass(ms) { if (ms == null) return ''; return ms < 60 ? 'p4' : ms < 120 ? 'p3' : ms < 250 ? 'p2' : 'p1'; }
+  /** Spielerzahl der letzten 24 Stunden als kleine Kurve (48 Abschnitte a 30 Minuten). */
+  function sparkHtml(h) {
+    if (!h || !h.spark || h.samples < 2) return '';
+    const w = 96, hgt = 24, max = Math.max(1, h.peak);
+    const pts = h.spark.map((v, i) => v == null ? null : `${(i / 47 * w).toFixed(1)},${(hgt - 2 - (v / max) * (hgt - 4)).toFixed(1)}`);
+    const segs = [];
+    let cur = [];
+    for (const p of pts) { if (p) cur.push(p); else if (cur.length) { segs.push(cur); cur = []; } }
+    if (cur.length) segs.push(cur);
+    const tip = t('Last 24 h: up to {0} players · {1}% online{2}', h.peak, h.uptime, h.avgPing != null ? ` · Ø ${h.avgPing} ms` : '');
+    return `<svg class="spark" viewBox="0 0 ${w} ${hgt}" width="${w}" height="${hgt}" title="${esc(tip)}"><title>${esc(tip)}</title>${segs.map(sg => sg.length > 1
+      ? `<polyline points="${sg.join(' ')}" />` : `<circle cx="${sg[0].split(',')[0]}" cy="${sg[0].split(',')[1]}" r="1.5" />`).join('')}</svg>`;
+  }
+  /** Freunde, die gerade auf diesem Server spielen. */
+  function friendsOn(s) {
+    let list = [];
+    try { list = F.data?.friends || []; } catch (_) { /* Freunde-Teil noch nicht geladen */ }
+    const ohnePort = a => String(a || '').toLowerCase().replace(/:25565$/, '');
+    return list.filter(f => f.presence && f.presence.state !== 'offline' && f.presence.activity?.mode === 'server'
+      && ohnePort(f.presence.activity.address) === ohnePort(s.address));
+  }
   function renderServers() {
     $('#serverList').innerHTML = S.servers.map(s => {
       const st = S.status[s.id] || s.status;
       const motd = st ? stripFormat(typeof st.description === 'string' ? st.description : '') : t('Checking…');
+      const fr = friendsOn(s);
       return `
-      <div class="server ${s.official ? 'official' : ''}" data-id="${esc(s.id)}">
+      <div class="server ${s.official ? 'official' : ''} ${s.favorite ? 'favorite' : ''}" data-id="${esc(s.id)}">
         ${favHtml(s)}
         <div class="server-body">
-          <div class="top"><strong>${esc(s.name)}</strong>${s.official ? `<span class="badge v">${esc(t('OFFICIAL'))}</span>` : ''}<code>${esc(s.address)}</code></div>
+          <div class="top"><button class="star-btn ${s.favorite ? 'on' : ''}" data-sfav="${esc(s.id)}" title="${esc(s.favorite ? t('Remove from favorites') : t('Add to favorites'))}">${icon('star')}</button><strong>${esc(s.name)}</strong>${s.official ? `<span class="badge v">${esc(t('OFFICIAL'))}</span>` : ''}<code>${esc(s.address)}</code></div>
           <div class="motd">${esc(tr(motd))}</div>
+          <div class="server-extra">
+            ${s.lastPlayed ? `<span class="muted small">${icon('history')}${esc(t('Last played {0}', timeAgo(s.lastPlayed)))}</span>` : ''}
+            ${fr.length ? `<span class="fr-here" title="${esc(fr.map(f => fLabel(f)).join(', '))}">${fr.slice(0, 4).map(f => faceHtml(f.uuid)).join('')}<span class="small">${esc(fr.length === 1 ? t('{0} is here', fLabel(fr[0])) : t('{0} friends are here', fr.length))}</span></span>` : ''}
+          </div>
         </div>
+        <div class="server-graph">${sparkHtml(s.history)}${s.history ? `<span class="muted small">${esc(t('Peak {0}', fmtNum(s.history.peak)))}</span>` : ''}</div>
         <div class="server-meta">
           ${st ? (st.online
             ? `<b>${fmtNum(st.players?.online)} / ${fmtNum(st.players?.max)}</b><span><span class="ping ${pingClass(st.latency)}"><i></i><i></i><i></i><i></i></span> ${st.latency ?? '?'} ms</span>`
@@ -1551,6 +1642,12 @@
   const INVITE_BASE = 'https://marcinator31.github.io/Vortex-Launcher/join.html';
   const inviteLink = addr => `${INVITE_BASE}?s=${encodeURIComponent(addr)}`;
   $('#serverList').addEventListener('click', async e => {
+    const fav = e.target.closest('[data-sfav]');
+    if (fav) {
+      const s = S.servers.find(x => x.id === fav.dataset.sfav);
+      try { S.servers = (await call(api.servers.favorite(fav.dataset.sfav, !s?.favorite))).servers; renderServers(); renderQuickServers(); } catch (err) { fail(err); }
+      return;
+    }
     const inv = e.target.closest('[data-invite]');
     if (inv) {
       try { await navigator.clipboard.writeText(inviteLink(inv.dataset.invite)); toast('success', t('Invite link copied — paste it in Discord.')); }
@@ -1890,6 +1987,56 @@
     try { S.beta = await call(api.betatest.rebuild()); } catch (_) { try { S.beta = await call(api.betatest.view()); } catch (__) {} }
     S.admin.loading = false;
     renderAdmin();
+    if (S.admin.status?.signedIn && S.admin.status?.canWrite) void loadStats();
+  }
+
+  // ---- Statistik (2.4.0) ----------------------------------------------------
+  async function loadStats() {
+    S.admin.statsLoading = true;
+    if (S.page === 'admin') renderStatsCard();
+    try { S.admin.stats = await call(api.admin.stats()); S.admin.statsError = null; }
+    catch (e) { S.admin.statsError = e.message; }
+    S.admin.statsLoading = false;
+    if (S.page === 'admin') renderStatsCard();
+  }
+  function renderStatsCard() {
+    const el = $('#adminStats');
+    if (el) el.outerHTML = statsCardHtml();
+    $('#adminStatsLoad')?.addEventListener('click', e => busy(e.currentTarget, loadStats));
+  }
+  function statsCardHtml() {
+    const A = S.admin, st = A.stats;
+    const kopf = `<div class="av-head"><h3 style="margin:0">${icon('bolt')}${esc(t('Statistics'))}</h3><span class="grow"></span>
+      ${st ? `<span class="muted small">${esc(t('as of {0}', fmtDate(st.fetchedAt)))}</span>` : ''}
+      <button class="btn small ghost" id="adminStatsLoad">${icon('refresh')}${esc(t('Update'))}</button></div>`;
+    if (!st) {
+      return `<section class="card" id="adminStats">${kopf}<p class="muted">${esc(A.statsLoading ? t('Loading…') : A.statsError ? tr(A.statsError) : t('Not loaded yet.'))}</p></section>`;
+    }
+    const maxDl = Math.max(1, ...st.files.map(f => f.downloads));
+    const kind = k => (k === 'client' ? 'Vortex Client' : k === 'addon' ? 'Vortex Plus Addon' : t('Other'));
+    const letzte = st.launcher[0];
+    return `<section class="card" id="adminStats">${kopf}
+      <div class="stat-grid">
+        <div class="stat-box" title="${esc(t('How often launchers downloaded the list of Vortex files -- roughly how often someone opened the launcher or checked for updates.'))}"><span>${esc(t('UPDATE CHECKS'))}</span><b>${fmtNum(st.manifestChecks)}</b></div>
+        <div class="stat-box" title="${esc(t('The same for the beta list -- only admins and beta testers.'))}"><span>${esc(t('BETA CHECKS'))}</span><b>${fmtNum(st.betaChecks)}</b></div>
+        <div class="stat-box"><span>${esc(t('LAUNCHER DOWNLOADS'))}</span><b>${fmtNum(st.launcherTotal)}</b></div>
+        ${letzte ? `<div class="stat-box" title="${esc(t('How often launchers asked GitHub whether {0} is the newest version.', letzte.version))}"><span>${esc(t('UPDATE CHECKS {0}', letzte.version))}</span><b>${fmtNum(letzte.updateChecks)}</b></div>` : ''}
+        <div class="stat-box"><span>${esc(t('BETA BUGS OPEN'))}</span><b style="color:${st.beta.open ? 'var(--warn)' : 'inherit'}">${fmtNum(st.beta.open)}</b></div>
+        <div class="stat-box"><span>${esc(t('BETA BUGS FIXED'))}</span><b>${fmtNum(st.beta.closed)}</b></div>
+      </div>
+      <h4>${esc(t('Current Vortex files'))}</h4>
+      <p class="muted small">${esc(t('Every launcher downloads a new version once -- so this is roughly how many players have it. Older versions are deleted on upload and no longer counted.'))}</p>
+      <table class="stat-table"><tr><th>${esc(t('FILE'))}</th><th>${esc(t('VERSION'))}</th><th>Minecraft</th><th class="n">${esc(t('DOWNLOADS'))}</th></tr>
+        ${st.files.map(f => `<tr><td>${esc(kind(f.kind))}</td><td>${esc(f.version)}</td><td>${esc(f.mc || '—')}</td><td class="n">${fmtNum(f.downloads)}<span class="stat-bar" style="width:${Math.round(f.downloads / maxDl * 60)}px"></span></td></tr>`).join('')}
+      </table>
+      <h4 style="margin-top:14px">${esc(t('Launcher versions'))}</h4>
+      <table class="stat-table"><tr><th>${esc(t('VERSION'))}</th><th>${esc(t('RELEASED'))}</th><th class="n">Setup</th><th class="n">Portable</th><th class="n">${esc(t('UPDATE CHECKS'))}</th></tr>
+        ${st.launcher.map(r => `<tr><td><a href="#" data-external="${esc(r.url)}">${esc(r.version)}</a></td><td class="muted">${esc(fmtDate(r.publishedAt))}</td><td class="n">${fmtNum(r.setup)}</td><td class="n">${fmtNum(r.portable)}</td><td class="n">${fmtNum(r.updateChecks)}</td></tr>`).join('')}
+      </table>
+      ${st.beta.latest.length ? `<h4 style="margin-top:14px">${esc(t('Latest beta bug reports'))}</h4>
+      <table class="stat-table">${st.beta.latest.map(b => `<tr><td><a href="#" data-external="${esc(b.url)}">${esc(b.title)}</a></td><td class="muted">${esc(b.state === 'open' ? t('open') : b.state === 'closed' ? t('fixed') : t('file'))}</td><td class="muted n">${esc(b.at ? fmtDate(b.at) : '')}</td></tr>`).join('')}</table>` : ''}
+      <p class="muted small" style="margin-top:10px">${esc(t('Numbers come from GitHub download counters -- the launcher sends no usage data of its own. Crash reports go to Discord and are not counted here.'))}</p>
+    </section>`;
   }
 
   function renderAdmin() {
@@ -1941,6 +2088,7 @@
         </div>
         ${st.canWrite ? `
         ${betaCardHtml()}
+        ${statsCardHtml()}
         <section class="card">
           <h3 style="margin-bottom:12px">${icon('upload')}${esc(t('Publish new files'))}</h3>
           <div class="dropzone" id="adminDrop">${icon('upload')}<strong>${esc(t('Drop Vortex jars here'))}</strong><span>${esc(t('Client, addon or Fabric API — the launcher reads the mod ID and version from the jar.'))}</span>
@@ -1979,6 +2127,7 @@
       renderAdmin();
     };
     if (!st.canWrite) return;
+    $('#adminStatsLoad')?.addEventListener('click', e => busy(e.currentTarget, loadStats));
     renderStaged();
     $('#adminPick').onclick = e => busy(e.currentTarget, async () => { stageJars((await call(api.admin.pickJars())).jars); });
     const drop = $('#adminDrop');
@@ -2259,6 +2408,13 @@
     else toast('error', t('Minecraft {0} crashed (exit code {1}).', c.version, c.code), [{ label: t('Show analysis'), run: () => showCrash(a) }]);
   });
   api.on.accounts(applyAccounts);
+  api.on.serverHistory(list => {
+    if (!Array.isArray(list)) return;
+    S.servers = list;
+    for (const x of list) if (x.status) S.status[x.id] = x.status;
+    if (S.page === 'servers') renderServers();
+    if (S.page === 'home') renderQuickServers();
+  });
   api.on.versions(list => { if (Array.isArray(list)) { S.versions = list; applyVersions(); } });
   let announced = null;
   api.on.update(u => {

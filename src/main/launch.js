@@ -315,6 +315,9 @@ async function start({ version, serverId = null, address = null, safe = false })
         ...(cfg.jvmPreset === 'custom' ? parseArgs(cfg.jvmArgs) : (JVM_PRESETS[cfg.jvmPreset] || [])),
         // Freunde im Spiel: Der Vortex Client verbindet sich mit demselben Server.
         ...(friendsUrl() ? [`-Dvortex.friends.url=${friendsUrl()}`] : []),
+        // Gemeinsamer Ordner fuer Presets, Waypoints, Makros ... -- alle
+        // Minecraft-Versionen (26.2, 1.21.11) benutzen dieselben Einstellungen.
+        `-Dvortex.shared.dir=${path.join(paths.dataRoot, 'shared')}`,
         // Beta-Test-Checkliste im Spiel (nur wenn der Beta-Kanal aktiv ist).
         ...(vortexfiles.betaActive() ? [`-Dvortex.beta.dir=${require('./betatest').dir()}`] : [])
       ]

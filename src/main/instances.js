@@ -113,11 +113,15 @@ function packagedEntries(version) {
  * mitgeliefert oder online (Admin-Bereich).
  */
 function bundleEntries(version) {
+  // Schluessel je MOD-ART, nicht je ID: das alte 1.21.11-Addon hiess
+  // "vortex_plus_addon", das neue "vortexplusaddon". Mit der ID als
+  // Schluessel waeren beide aktiv -- doppelte Klassen, Absturz beim Start.
+  const key = id => (isCoreId(id) ? 'client' : isAddonId(id) ? 'addon' : id);
   const byId = new Map();
-  for (const e of packagedEntries(version)) byId.set(e.id, e);
+  for (const e of packagedEntries(version)) byId.set(key(e.id), e);
   for (const e of vortexfiles.entries(version)) {
-    const cur = byId.get(e.id);
-    if (!cur || vortexfiles.isNewer(e.version, cur.version)) byId.set(e.id, e);
+    const cur = byId.get(key(e.id));
+    if (!cur || vortexfiles.isNewer(e.version, cur.version)) byId.set(key(e.id), e);
   }
   return [...byId.values()].map(e => ({ ...e, kind: vortexfiles.kindOf(e.id) }));
 }

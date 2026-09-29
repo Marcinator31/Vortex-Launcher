@@ -469,7 +469,61 @@
       renderHome();
       if (S.page === 'versions') renderVersions();
       updateNavBadge();
+      if (r.modTransfer) modTransferDialog(r.modTransfer);
     } catch (e) { fail(e); }
+  }
+
+  /**
+   * Erster Wechsel in eine Version: eigene Mods der bisherigen mitnehmen?
+   * Kommt pro Richtung nur einmal (siehe main/modtransfer.js).
+   */
+  function modTransferDialog({ from, to, mods }) {
+    let running = false, off = null;
+    const sperre = e => { if (running && e.key === 'Escape') e.stopImmediatePropagation(); };
+    window.addEventListener('keydown', sperre, true);
+    const cleanup = () => { window.removeEventListener('keydown', sperre, true); try { off && off(); } catch (_) {} off = null; };
+    const zeige = 12;
+    const { el, close } = openModal(`
+      <h3>${icon('download')}${esc(t('Take your mods to Minecraft {0}?', to))}</h3>
+      <p>${esc(t('You have {0} mod(s) in Minecraft {1} that are missing in {2}. Download them in the right version for {2}?', mods.length, from, to))}</p>
+      <div class="mt-list">${mods.slice(0, zeige).map(m => `<span class="mt-chip">${esc(m.name)}</span>`).join('')}${mods.length > zeige ? `<span class="mt-chip mt-more">${esc(t('+{0} more', mods.length - zeige))}</span>` : ''}</div>
+      <label class="imp-opt mt-opt"><input type="checkbox" id="mtConfig" checked /><span>${esc(t('Also take their settings (config)'))}</span></label>
+      <p class="muted small">${esc(t('Mods that do not exist for {0} yet are skipped. Nothing changes in {1}. You are only asked once.', to, from))}</p>
+      <div class="row-btns"><span class="muted small grow" id="mtProg"></span><button class="btn ghost" id="mtNo">${esc(t('No thanks'))}</button><button class="btn" id="mtYes">${icon('download')}${esc(t('Download'))}</button></div>`,
+      { onClose: cleanup });
+    const root = $('#modalRoot');
+    const rootClick = root.onclick;
+    off = api.on.importProgress(pr => { const l = $('#mtProg', el); if (l && pr) l.textContent = pr.label ? `${tr(pr.label)}${pr.percent != null ? ` · ${pr.percent}%` : ''}` : ''; });
+    $('#mtNo', el).onclick = async () => { try { await call(api.mods.transferSkip(from, to)); } catch (_) {} close(); };
+    $('#mtYes', el).onclick = e => busy(e.currentTarget, async () => {
+      running = true;
+      root.onclick = null;
+      $('#mtNo', el).disabled = true;
+      try {
+        const r = await call(api.mods.transfer(from, to, { config: $('#mtConfig', el).checked }));
+        S.versions = r.versions || S.versions;
+        renderVersionMenu();
+        if (S.page === 'versions') renderVersions();
+        renderHome();
+        const n = r.installed.length + r.copied.length;
+        el.classList.add('mt-done');
+        el.innerHTML = `<h3>${icon('check')}${esc(t('Mods for Minecraft {0}', to))}</h3>
+          <div class="finding ${n ? 'ok' : 'warn'}">${icon(n ? 'check' : 'alert')}<div>
+            <strong>${esc(n ? t('{0} mod file(s) added to Minecraft {1}', n, to) : t('None of your mods exist for Minecraft {0} yet.', to))}</strong>
+            ${r.files ? `<p>${esc(t('{0} settings file(s) copied', r.files))}</p>` : ''}
+            ${r.unavailable.length ? `<p class="muted small">${esc(t('Not available for Fabric {0}: {1}', to, r.unavailable.slice(0, 12).join(', ')))}${r.unavailable.length > 12 ? ' …' : ''}</p>` : ''}
+          </div></div>
+          <div class="row-btns"><span class="grow"></span><button class="btn ghost" data-close>${esc(t('Close'))}</button><button class="btn" data-mods>${icon('cube')}${esc(t('Open mods'))}</button></div>`;
+        $('[data-close]', el).onclick = () => close();
+        $('[data-mods]', el).onclick = () => { close(); S.contentVersion = to; showPage('mods'); };
+      } catch (err) {
+        $('#mtNo', el).disabled = false;
+        throw err;
+      } finally {
+        running = false;
+        root.onclick = rootClick;
+      }
+    });
   }
 
   // Schnell beitreten
@@ -737,6 +791,7 @@
       input.value = '';
       toast('success', t('Minecraft {0} added and selected. The first start downloads it.', r.version));
       renderVersions(); renderHome();
+      if (r.modTransfer) modTransferDialog(r.modTransfer);
     });
   };
 

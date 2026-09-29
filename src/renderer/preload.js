@@ -48,7 +48,9 @@ contextBridge.exposeInMainWorld('vortex', {
     importPaths: (v, list) => call('mods:importPaths', v, list),
     checkUpdates: v => call('mods:checkUpdates', v),
     applyUpdates: (v, files) => call('mods:applyUpdates', v, files || null),
-    performance: v => call('mods:performance', v)
+    performance: v => call('mods:performance', v),
+    transfer: (from, to, opts) => call('mods:transfer', from, to, opts || {}),
+    transferSkip: (from, to) => call('mods:transferSkip', from, to)
   },
   packs: {
     list: v => call('packs:list', v),

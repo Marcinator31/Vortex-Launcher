@@ -21,6 +21,7 @@ const config = require('./config');
 const vortexfiles = require('./vortexfiles');
 const perf = require('./perf');
 const importer = require('./importer');
+const modtransfer = require('./modtransfer');
 const music = require('./music');
 
 // Musik: eigenes Schema, damit <audio> Dateien abspielen kann (nur Titel aus der Liste).
@@ -223,8 +224,25 @@ function registerIpc() {
 
   // Versionen
   handle('versions:list', () => ({ versions: versionsOverview() }));
-  handle('versions:select', v => { instances.requireVersion(v); return { settings: settings.set({ selectedVersion: v }) }; });
-  handle('versions:add', async v => { const added = await instances.addVersion(v); settings.set({ selectedVersion: added }); return { version: added, versions: versionsOverview() }; });
+  // Beim ersten Wechsel in eine Version: anbieten, die eigenen Mods der bisherigen mitzunehmen
+  const modAngebot = (from, to) => { try { return modtransfer.angebot(from, to); } catch (e) { log(`Mod transfer check: ${e.message}`, 'warn'); return null; } };
+  handle('versions:select', v => {
+    instances.requireVersion(v);
+    const vorher = settings.get().selectedVersion;
+    return { settings: settings.set({ selectedVersion: v }), modTransfer: modAngebot(vorher, v) };
+  });
+  handle('versions:add', async v => {
+    const vorher = settings.get().selectedVersion;
+    const added = await instances.addVersion(v);
+    settings.set({ selectedVersion: added });
+    return { version: added, versions: versionsOverview(), modTransfer: modAngebot(vorher, added) };
+  });
+  handle('mods:transfer', async (from, to, opts) => {
+    if (launch.sessionList().some(x => x.version === to)) throw new Error('Close Minecraft first.');
+    const r = await modtransfer.uebertragen(from, to, opts || {}, importer, modrinth);
+    return { ...r, versions: versionsOverview() };
+  });
+  handle('mods:transferSkip', (from, to) => modtransfer.ablehnen(from, to));
   handle('versions:remove', v => { instances.removeCustomVersion(v); if (settings.get().selectedVersion === v) settings.set({ selectedVersion: instances.allVersions()[0] }); return { versions: versionsOverview(), settings: settings.get() }; });
   handle('versions:repair', async v => {
     if (launch.sessionList().some(x => x.version === v)) throw new Error('Close Minecraft first -- files in use cannot be checked.');

@@ -816,3 +816,11 @@ ul.plain { margin: 8px 0 12px; padding-left: 18px; line-height: 1.6; }
 .stat-table td { padding: 5px 6px; border-top: 1px solid var(--line); }
 .stat-table td.n { text-align: right; font-variant-numeric: tabular-nums; }
 .stat-bar { display: inline-block; height: 6px; border-radius: 3px; background: var(--violet-2); vertical-align: middle; margin-left: 6px; opacity: .8; }
+
+/* Mods beim ersten Versionswechsel mitnehmen */
+.mt-list { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px; margin: -6px 0 16px; }
+.mt-opt { margin-bottom: 8px; }
+.mt-done .row-btns { margin-top: 14px; }
+.finding.ok > svg { color: var(--ok); }
+.mt-chip { white-space: nowrap; line-height: 1.4; font-size: 12px; padding: 4px 9px; border-radius: 999px; background: var(--inner); border: 1px solid var(--line); color: var(--text-2); }
+.mt-chip.mt-more { font-style: italic; }

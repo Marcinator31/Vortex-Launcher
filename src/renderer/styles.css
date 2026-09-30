@@ -770,8 +770,11 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px;
 .bt-filter { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--dim); cursor: pointer; }
 .bt-warn { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--warn); margin: 0; }
 .bt-warn svg { width: 15px; height: 15px; flex: none; }
-.bt-list { max-height: 520px; overflow: auto; display: grid; gap: 12px; padding-right: 4px; }
-.bt-group { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+/* Flex statt Grid: im Grid mit fester Maximalhoehe schrumpften die Gruppen
+   (overflow: hidden) bei vielen Punkten auf duenne Striche zusammen. */
+.bt-list { max-height: 560px; overflow: auto; display: flex; flex-direction: column; gap: 12px; padding-right: 4px; }
+.bt-group { flex: none; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.bt-mc { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 99px; background: var(--card, rgba(255,255,255,.06)); border: 1px solid var(--line); color: var(--dim); }
 .bt-ghead { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--inner); font-size: 12.5px; flex-wrap: wrap; }
 .bt-item { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center; padding: 7px 12px; border-top: 1px solid var(--line); font-size: 13px; }
 .bt-item label { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; min-width: 0; }

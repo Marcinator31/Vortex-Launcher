@@ -2220,7 +2220,7 @@
     const groups = B.groups.map(g => {
       const items = g.items.filter(i => !S.betaOnlyOpen || !i.checked || i.reports.some(r => r.status !== 'resolved'));
       if (!items.length) return '';
-      return `<div class="bt-group"><div class="bt-ghead"><span class="src ${kindCls(g.kind)}">${esc(g.kind.toUpperCase())}</span><strong>${esc(g.component)} ${esc(g.version)}</strong>${g.heading ? `<span class="muted">· ${esc(g.heading)}</span>` : ''}</div>
+      return `<div class="bt-group"><div class="bt-ghead"><span class="src ${kindCls(g.kind)}">${esc(g.kind.toUpperCase())}</span><strong>${esc(g.component)} ${esc(g.version)}</strong><span class="bt-mc">Minecraft ${esc(g.mc)}</span>${g.heading ? `<span class="muted">· ${esc(g.heading)}</span>` : ''}</div>
         ${items.map(i => `<div class="bt-item ${i.checked ? 'done' : ''} ${i.reports.some(r => r.status !== 'resolved') ? 'bad' : ''}">
           <label><input type="checkbox" data-bt-check="${esc(i.id)}" ${i.checked ? 'checked' : ''}/><span>${esc(i.text)}</span></label>
           <button class="btn small ghost" data-bt-report="${esc(i.id)}" title="${esc(t('Report a bug'))}">${icon('alert')}${esc(t('Bug'))}</button>

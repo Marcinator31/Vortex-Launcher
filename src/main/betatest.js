@@ -112,6 +112,10 @@ async function fetchManifest(name) {
 async function rebuild() {
   const [stable, beta] = await Promise.all([fetchManifest('manifest.json'), fetchManifest('manifest-beta.json')]);
   const groups = [];
+  // Derselbe Punkt steht oft in mehreren Release-Notizen (z. B. 2.35.0 und
+  // 2.35.1, wenn dieselbe Version nachgebaut wurde). Pro Minecraft-Version und
+  // Datei nur einmal abfragen -- beim neuesten Build, in dem er vorkommt.
+  const gesehen = new Set();
   for (const [mc, e] of Object.entries(beta.versions || {})) {
     for (const [id, f] of Object.entries(e.files || {})) {
       const online = stable.versions?.[mc]?.files?.[id]?.version || null;
@@ -129,6 +133,13 @@ async function rebuild() {
       for (const c of changes) {
         const version = vortexfiles.cleanVersion(c.version);
         for (const sec of parseNotes(c.notes)) {
+          sec.items = sec.items.filter(text => {
+            const k = `${mc}|${id}|${text}`;
+            if (gesehen.has(k)) return false;
+            gesehen.add(k);
+            return true;
+          });
+          if (!sec.items.length) continue;
           groups.push({
             key: hash(`${mc}|${id}|${version}|${sec.heading}`),
             mc, fileId: id, kind: vortexfiles.kindOf(id), component: String(f.name || id), version,

@@ -68,8 +68,11 @@ jobs:
           if gh release view "v$VERSION" >/dev/null 2>&1; then
             echo "Release v$VERSION gibt es schon."
           else
+            # NOCH NICHT "latest": Launcher fragen GitHub nach dem neuesten Release.
+            # Zeigte "latest" schon jetzt hierher, faenden sie waehrend des Builds
+            # (und nach einem abgebrochenen Build fuer immer) keine latest.yml.
             gh release create "v$VERSION" --target "$GITHUB_SHA" --title "Vortex Client Launcher $VERSION" \
-              --notes "$(git log -1 --pretty=%B)" --latest
+              --notes "$(git log -1 --pretty=%B)" --latest=false
           fi
 
       - name: EXE bauen und veroeffentlichen
@@ -77,6 +80,23 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      # Erst jetzt, mit EXE und latest.yml im Release: fuer alle Launcher freigeben.
+      # Alte Releases ohne Dateien (abgebrochene Builds) werden aufgeraeumt.
+      - name: Als neueste Version freigeben
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          N=$(gh release view "v$VERSION" --json assets --jq '[.assets[].name | select(. == "latest.yml")] | length')
+          if [ "$N" != "1" ]; then echo "::error::latest.yml fehlt im Release v$VERSION -- nicht freigegeben"; exit 1; fi
+          gh release edit "v$VERSION" --latest
+          echo "v$VERSION ist jetzt die neueste Version."
+          gh api "repos/${{ github.repository }}/releases?per_page=50" --jq '.[] | select(.tag_name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$")) | select((.assets | length) == 0) | select(.tag_name != "v'"$VERSION"'") | .tag_name' | while read t; do
+            echo "Leeres Release $t (abgebrochener Build) wird entfernt"
+            gh release delete "$t" --yes --cleanup-tag || true
+          done
 
       - name: EXE-Dateien zusaetzlich hier speichern
         uses: actions/upload-artifact@v4

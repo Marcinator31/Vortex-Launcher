@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "vortex_hosting_fix",
+  "version": "1.0.0",
+  "name": "Vortex Hosting Fix",
+  "description": "Keeps hosted Vortex worlds from crashing when e4mc's /e4mc command is checked (server only).",
+  "authors": ["Vortex Client"],
+  "license": "MIT",
+  "environment": "server",
+  "entrypoints": { "main": ["vortex.hostingfix.HostingFix"] },
+  "depends": { "fabricloader": ">=0.15.0", "fabric-lifecycle-events-v1": "*", "fabric-command-api-v2": "*" }
+}

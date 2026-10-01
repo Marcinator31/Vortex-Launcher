@@ -175,9 +175,13 @@ async function ensureFabricServer(v, dir) {
     if (!(exists(launcher) && meta.mods?.length && meta.mods.every(f => exists(path.join(modsDir, f))))) throw e;
     log(`Hosting: using the existing e4mc setup (${e.message}).`, 'warn');
   }
+  // Hilfs-Mod: ohne sie stuerzt der Server ab, sobald jemand joint (e4mc-Fehler, siehe hosting-fix/)
+  const FIX = 'vortex-hosting-fix.jar';
+  fs.copyFileSync(path.join(paths.assetsRoot(), 'hosting', FIX).replace(/app\.asar(?=[\\/])/, 'app.asar.unpacked'), path.join(modsDir, FIX));
   // Alte Fassungen und fremde Jars raus -- auf dem Server laufen nur diese Mods.
+  const keep = [...meta.mods, FIX];
   for (const f of fs.readdirSync(modsDir)) {
-    if (/\.jar$/i.test(f) && !meta.mods.includes(f)) fs.rmSync(path.join(modsDir, f), { force: true });
+    if (/\.jar$/i.test(f) && !keep.includes(f)) fs.rmSync(path.join(modsDir, f), { force: true });
   }
   fs.writeFileSync(path.join(dir, 'fabric-server-launcher.properties'), 'serverJar=server.jar\n');
   return launcher;
@@ -498,4 +502,4 @@ function kick(name) {
   return {};
 }
 
-module.exports = { start, stop, kick, onSessions, state: () => state, active: () => Boolean(server), MAX_FRIENDS };
+module.exports = { start, stop, kick, sendCommand, onSessions, state: () => state, active: () => Boolean(server), MAX_FRIENDS };

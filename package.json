@@ -37,7 +37,8 @@
       "package.json"
     ],
     "asarUnpack": [
-      "assets/modpacks/**"
+      "assets/modpacks/**",
+      "assets/hosting/**"
     ],
     "publish": {
       "provider": "github",

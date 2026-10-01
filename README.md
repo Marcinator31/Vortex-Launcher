@@ -66,6 +66,10 @@ startet den Launcher neu.
   (Sodium, Lithium, Entity Culling)
 - **Resource Packs** und **Shaders** (mit Iris-Knopf), jeweils mit Modrinth-Suche
 - **Worlds:** Welten mit Groesse und Symbol, **Backups** (manuell + automatisch vor Updates), wiederherstellen
+- **Welt hosten:** *Worlds -> Hosting starten*, Welt waehlen -- der Launcher startet einen Minecraft-Server
+  auf der Welt (Platz fuer dich + 4 Freunde), gibt den Port per UPnP im Router frei, verbindet dich selbst und
+  zeigt die Adresse/Einladungslink fuer Freunde. Schliesst du Minecraft, speichert der Server und geht aus.
+  Vorher wird die Welt gesichert; Inventar und Position werden zwischen Einzelspieler und Server mitgenommen.
 - **Screenshots:** Galerie, Grossansicht, kopieren, im Ordner zeigen, loeschen
 - **Servers:** Live-Status, direkt beitreten
 - **Skins:** echter Skin-Wechsel ueber Mojang, 3D-Vorschau, Umhang waehlen, Skin-Bibliothek,

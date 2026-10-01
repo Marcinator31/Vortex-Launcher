@@ -1237,7 +1237,7 @@
         </div>
         ${open && w.backups.length ? `<div class="world-backups">${w.backups.map(b => `
           <div class="bk" data-id="${esc(b.id)}">${icon('history')}
-            <span class="when">${esc(fmtDate(b.createdAt))} <span class="muted">· ${esc(b.reason === 'manual' ? t('manual') : b.reason === 'before update' ? t('before update') : t('before restore'))} · ${fmtSize(b.size)}</span></span>
+            <span class="when">${esc(fmtDate(b.createdAt))} <span class="muted">· ${esc(b.reason === 'manual' ? t('manual') : b.reason === 'before update' ? t('before update') : b.reason === 'before hosting' ? t('before hosting') : t('before restore'))} · ${fmtSize(b.size)}</span></span>
             <button class="btn small ghost" data-restore>${esc(t('Restore'))}</button>
             <button class="icon-btn" data-bdelete title="${esc(t('Delete backup'))}">${icon('trash')}</button>
           </div>`).join('')}</div>` : ''}
@@ -1286,6 +1286,99 @@
   });
   $('#worldsBackups').onclick = () => call(api.open('backups', contentVersion())).catch(fail);
   $('#worldsFolder').onclick = () => call(api.open('saves', contentVersion())).catch(fail);
+
+  // -----------------------------------------------------------------------
+  // Welt hosten: bis zu 4 Freunde, Server aus, sobald Minecraft zu ist
+  // -----------------------------------------------------------------------
+  S.hosting = { status: 'off' };
+  const hostingOn = () => S.hosting.status !== 'off';
+  function renderHosting() {
+    const panel = $('#hostPanel');
+    const h = S.hosting;
+    $('#hostStart').hidden = hostingOn();
+    if (!hostingOn()) { panel.hidden = true; panel.innerHTML = ''; return; }
+    panel.hidden = false;
+    const running = h.status === 'running';
+    const players = h.players || [];
+    const head = `<div class="host-head"><i class="host-dot ${running ? 'on' : ''}"></i>
+      <div class="host-title"><strong>${esc(t('Hosting “{0}”', h.worldName || h.world))}</strong>
+      <span class="muted">Minecraft ${esc(h.version)} · ${esc(t('{0} of {1} players', players.length, (h.maxFriends || 4) + 1))}</span></div>
+      <button class="btn small danger" id="hostStop" ${h.status === 'stopping' ? 'disabled' : ''}>${icon('stop')}${esc(t('Stop server'))}</button></div>`;
+    if (!running) {
+      panel.innerHTML = `${head}<div class="host-step"><span class="spinner"></span>${esc(t(h.step || 'Starting the server'))}${h.percent != null ? ` · ${h.percent}%` : ''}</div>`;
+      return;
+    }
+    const addr = (label, value, invite) => `<div class="host-addr"><span class="lbl">${esc(label)}</span><div class="val"><code>${esc(value)}</code>
+      <button class="icon-btn" data-hcopy="${esc(value)}" title="${esc(t('Copy'))}">${icon('copy')}</button>
+      ${invite ? `<button class="btn small ghost" data-hinvite="${esc(value)}">${icon('send')}${esc(t('Invite link'))}</button>` : ''}</div></div>`;
+    const notes = [];
+    if (h.network === 'upnp') notes.push(['check', t('The port was opened in your router automatically — friends can join from anywhere.')]);
+    else if (h.network === 'cgnat') notes.push(['alert', t('Your internet provider shares your IP address (or there is a second router). Friends outside your Wi-Fi probably cannot join directly — forward port {0} on the first router or use a tunnel like playit.gg.', h.port)]);
+    else notes.push(['alert', t('Your router did not open the port automatically. For friends outside your Wi-Fi: forward TCP port {0} to {1} in your router settings.', h.port, (h.lan || '').split(':')[0] || t('this PC'))]);
+    notes.push(['info', t('Friends need Minecraft {0}. If Windows asks about the firewall for Java, click “Allow”.', h.version)]);
+    notes.push(['info', t('When you close Minecraft, the server saves and turns off.')]);
+    panel.innerHTML = `${head}
+      <div class="host-addrs">${h.address ? addr(t('For friends (internet)'), h.address, true) : ''}${h.lan ? addr(t('Same Wi-Fi'), h.lan, false) : ''}</div>
+      <div class="host-players">${players.length ? players.map(p => {
+        const me = S.account && p.toLowerCase() === String(S.account.username).toLowerCase();
+        return `<span class="host-player ${me ? 'me' : ''}">${esc(p)}${me ? ` <span class="muted">(${esc(t('you'))})</span>` : `<button class="icon-btn" data-hkick="${esc(p)}" title="${esc(t('Kick'))}">${icon('x')}</button>`}</span>`;
+      }).join('') : `<span class="muted small">${esc(t('Nobody is online yet.'))}</span>`}</div>
+      ${notes.map(n => `<div class="host-note ${n[0] === 'alert' ? 'warn' : ''}">${icon(n[0])}<span>${esc(n[1])}</span></div>`).join('')}`;
+  }
+  $('#hostPanel').addEventListener('click', async e => {
+    if (e.target.closest('#hostStop')) {
+      if (!(await confirmDialog({ title: t('Stop the server?'), text: t('The world is saved and everyone on it — you too — is disconnected.'), ok: t('Stop server'), danger: true }))) return;
+      call(api.hosting.stop()).catch(fail);
+      return;
+    }
+    const cp = e.target.closest('[data-hcopy]');
+    if (cp) { try { await navigator.clipboard.writeText(cp.dataset.hcopy); toast('success', t('Address copied.')); } catch (err) { fail(err); } return; }
+    const inv = e.target.closest('[data-hinvite]');
+    if (inv) {
+      try { await navigator.clipboard.writeText(`${inviteLink(inv.dataset.hinvite)}&v=${encodeURIComponent(S.hosting.version)}`); toast('success', t('Invite link copied — paste it in Discord.')); }
+      catch (err) { fail(err); }
+      return;
+    }
+    const k = e.target.closest('[data-hkick]');
+    if (k) call(api.hosting.kick(k.dataset.hkick)).catch(fail);
+  });
+  $('#hostStart').onclick = async () => {
+    if (hostingOn()) return;
+    if (!S.account) { toast('error', t('Sign in with your Microsoft account first.')); return; }
+    if (mySession() || isBusy()) { toast('error', t('Close Minecraft first.')); return; }
+    const v = contentVersion();
+    if (!S.worlds.length) { try { S.worlds = (await call(api.worlds.list(v))).worlds; } catch (e) { fail(e); return; } }
+    const worlds = S.worlds.filter(w => !w.missing);
+    if (!worlds.length) { toast('error', t('Create a world in singleplayer first, then you can host it.')); return; }
+    const { el, close } = openModal(`<h3>${icon('users')}${esc(t('Host a world'))}</h3>
+      <p>${esc(t('Pick a world from Minecraft {0}. Up to {1} friends can join you. When you close Minecraft, the server turns off.', v, 4))}</p>
+      <div class="host-pick">${worlds.map((w, i) => `<label><input type="radio" name="hw" value="${esc(w.folder)}" ${i === 0 ? 'checked' : ''} />
+        ${w.icon ? `<img src="${esc(w.icon)}" alt="" />` : `<span class="wi">${icon('map')}</span>`}
+        <span class="wn"><strong>${esc(w.name)}</strong><span>${esc(t('Played {0}', timeAgo(w.lastPlayed).toLowerCase()))} · ${fmtSize(w.size)}</span></span></label>`).join('')}</div>
+      <div class="host-eula"><label class="switch"><input type="checkbox" id="hostEula" /><i></i></label><span>${esc(t('I accept the'))} <a id="hostEulaLink">${esc(t('Minecraft EULA'))}</a></span></div>
+      <p class="muted small">${esc(t('A backup of the world is made first.'))}</p>
+      <div class="row-btns"><button class="btn ghost" data-r="0">${esc(t('Cancel'))}</button><button class="btn" data-r="1" disabled>${icon('play')}${esc(t('Start hosting'))}</button></div>`);
+    const go = $('[data-r="1"]', el);
+    $('#hostEula', el).onchange = e => { go.disabled = !e.target.checked; };
+    $('#hostEulaLink', el).onclick = e => { e.preventDefault(); api.openExternal('https://aka.ms/MinecraftEULA'); };
+    $('[data-r="0"]', el).onclick = close;
+    go.onclick = async () => {
+      const folder = $('input[name="hw"]:checked', el)?.value;
+      if (!folder) return;
+      close();
+      S.hosting = { status: 'starting', version: v, world: folder, worldName: worlds.find(w => w.folder === folder)?.name, step: 'Backing up your world', players: [] };
+      renderHosting();
+      try { await call(api.hosting.start(v, folder, { acceptEula: true })); }
+      catch (err) { toast('error', err.message, [{ label: t('Open console'), run: () => setConsole(true) }]); }
+    };
+  };
+  api.on.hosting(h => {
+    const was = S.hosting.status;
+    S.hosting = h && h.status ? h : { status: 'off' };
+    renderHosting();
+    if (was !== 'off' && S.hosting.status === 'off' && S.page === 'worlds') loadWorlds();
+  });
+  api.hosting.state().then(r => { if (r?.ok && r.state) { S.hosting = r.state; renderHosting(); } }).catch(() => {});
 
   // -----------------------------------------------------------------------
   // Screenshots

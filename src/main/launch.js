@@ -43,6 +43,7 @@ function sessionList() {
 function publishSessions() {
   send('sessions', sessionList());
   try { require('./friends').onSessions(sessionList()); } catch (_) {}
+  try { require('./hosting').onSessions(sessionList()); } catch (_) {}
 }
 
 /**
@@ -193,7 +194,7 @@ const JVM_PRESETS = {
 
 const STAGES = { assets: 'Downloading assets', natives: 'Preparing natives', classes: 'Downloading libraries', 'assets-copy': 'Copying assets' };
 
-async function start({ version, serverId = null, address = null, safe = false }) {
+async function start({ version, serverId = null, address = null, safe = false, hostedWorld = null }) {
   if (launching) throw new Error('A launch is already in progress.');
   const account = accounts.current();
   if (!account) throw new Error('Sign in with your Microsoft account first.');
@@ -206,7 +207,8 @@ async function start({ version, serverId = null, address = null, safe = false })
   if (safe && [...sessions.values()].some(s => s.version === v)) throw new Error('Close Minecraft first -- safe mode needs the instance to itself.');
   // Server aus der Liste -- oder direkt eine Adresse (Einladungslink vortex://join/...)
   const direkt = address ? servers.normalizeAddress(address) : null;
-  const server = serverId ? servers.byId(serverId) : direkt ? { id: null, name: direkt, address: direkt } : null;
+  // Eigene gehostete Welt (hosting.js): Name der Welt statt 127.0.0.1, nicht in den Server-Verlauf
+  const server = serverId ? servers.byId(serverId) : direkt ? { id: null, name: hostedWorld || direkt, address: direkt, hosted: Boolean(hostedWorld) } : null;
 
   launching = true;
   try {
@@ -339,7 +341,7 @@ async function start({ version, serverId = null, address = null, safe = false })
     discord.update({ state: 'playing', version: v, client: info.clientVersion, server: server?.name, since: launchedAt });
     sessions.set(id, session);
     instances.markPlayed(v);
-    if (server) { try { servers.markPlayed(server.address); } catch (_) {} }
+    if (server && !server.hosted) { try { servers.markPlayed(server.address); } catch (_) {} }
     publishSessions();
     progress('started', server ? `Joining ${server.name}` : 'Minecraft is starting', 100);
     notify('success', server ? `Minecraft ${v} is starting and joins ${server.name}.` : `Minecraft ${v} is starting.`);

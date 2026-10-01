@@ -72,6 +72,12 @@ contextBridge.exposeInMainWorld('vortex', {
     deleteBackup: (v, id) => call('worlds:deleteBackup', v, id),
     remove: (v, folder) => call('worlds:delete', v, folder)
   },
+  hosting: {
+    state: () => call('hosting:state'),
+    start: (v, folder, opts) => call('hosting:start', v, folder, opts || {}),
+    stop: () => call('hosting:stop'),
+    kick: name => call('hosting:kick', name)
+  },
   shots: {
     list: v => call('shots:list', v),
     thumb: (v, f) => call('shots:thumb', v, f),
@@ -178,6 +184,7 @@ contextBridge.exposeInMainWorld('vortex', {
     friendsOpen: on('friends-open'),
     betatest: on('betatest'),
     serverHistory: on('serverHistory'),
-    repair: on('repair')
+    repair: on('repair'),
+    hosting: on('hosting')
   }
 });

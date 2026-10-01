@@ -35,6 +35,7 @@ const mrpack = require('./mrpack');
 const discord = require('./discord');
 const news = require('./news');
 const friends = require('./friends');
+const hosting = require('./hosting');
 
 const { paths, log, notify } = core;
 
@@ -455,6 +456,12 @@ function registerIpc() {
   handle('worlds:deleteBackup', (v, id) => media.deleteBackup(v, id));
   handle('worlds:delete', (v, folder) => media.deleteWorld(v, folder));
 
+  // Welt hosten (bis zu 4 Freunde, Server aus, wenn Minecraft zu ist)
+  handle('hosting:state', () => ({ state: hosting.state() }));
+  handle('hosting:start', (v, folder, opts) => hosting.start({ version: v, world: folder, acceptEula: Boolean(opts && opts.acceptEula) }).then(state => ({ state })));
+  handle('hosting:stop', async () => { await hosting.stop('user'); return { state: hosting.state() }; });
+  handle('hosting:kick', name => hosting.kick(name));
+
   // Screenshots
   handle('shots:list', v => ({ shots: media.listScreenshots(v) }));
   handle('shots:thumb', (v, f) => ({ data: media.thumbnail(v, f) }));
@@ -559,3 +566,13 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => { updater.stopBackground(); discord.stop(); app.quit(); });
+
+// Launcher wird geschlossen, waehrend eine Welt gehostet wird: Server erst
+// speichern und beenden lassen, sonst liefe Java unsichtbar weiter.
+let quitAfterHosting = false;
+app.on('before-quit', e => {
+  if (quitAfterHosting || !hosting.active()) return;
+  e.preventDefault();
+  quitAfterHosting = true;
+  hosting.stop('quit').finally(() => app.quit());
+});

@@ -12,7 +12,10 @@
  *   - Schwierigkeit, Spielmodus und Hardcore kommen aus der Welt.
  *   - Cheats an in der Welt -> der Hoster ist Operator.
  *   - Vor dem Start wird die Welt gesichert (Backup).
- *   - Der Router-Port wird per UPnP freigegeben, wenn der Router das kann.
+ *   - Freunde kommen ueber e4mc rein (Mod auf dem Server, kostenloser
+ *     Vermittlungsdienst): Adresse wie abc.e4mc.link, ohne Portfreigabe und
+ *     ohne Konto -- klappt auch hinter Routern ohne UPnP. Faellt e4mc aus,
+ *     wird der Router-Port per UPnP freigegeben, wenn der Router das kann.
  *
  * Inventar & Position des Hosters: Bis 1.21 liegen sie in level.dat
  * ("Player"), ein Server liest aber playerdata/<uuid>.dat. Deshalb werden
@@ -37,6 +40,9 @@ const upnp = require('./upnp');
 
 const MAX_FRIENDS = 4;
 const MANIFEST = 'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json';
+const FABRIC_META = 'https://meta.fabricmc.net/v2';
+// Mods auf dem Server -- nur diese zwei (Modrinth-Projekt-IDs). e4mc braucht Fabric API.
+const SERVER_MODS = [{ id: 'P7dR8mSH', name: 'Fabric API' }, { id: 'qANg5Jrr', name: 'e4mc' }];
 const hostingRoot = v => path.join(paths.dataRoot, 'hosting', v);
 const savesRoot = v => path.join(paths.instanceRoot(v), 'saves');
 const safeDirName = n => typeof n === 'string' && n && n === path.basename(n) && !n.startsWith('.') && !/[<>:"|?*]/.test(n);
@@ -108,6 +114,73 @@ async function ensureServerJar(v) {
   core.writeJson(metaFile, { sha1: sum });
   log(`Minecraft server ${v} downloaded (${Math.round(buf.length / 1048576)} MB).`);
   return jar;
+}
+
+// ---------------------------------------------------------------------------
+// Fabric-Server mit e4mc (Verbindung fuer Freunde ohne Portfreigabe)
+// ---------------------------------------------------------------------------
+
+async function downloadTo(url, file, sha1 = null) {
+  const res = await fetch(url, { signal: AbortSignal.timeout(5 * 60 * 1000) });
+  if (!res.ok) throw new Error(`Download failed (${res.status}): ${url}`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (sha1 && crypto.createHash('sha1').update(buf).digest('hex') !== sha1) throw new Error(`Download is damaged: ${path.basename(file)}`);
+  if (buf.subarray(0, 2).toString('latin1') !== 'PK') throw new Error(`Not a jar file: ${path.basename(file)}`);
+  const tmp = `${file}.download`;
+  fs.writeFileSync(tmp, buf);
+  fs.renameSync(tmp, file);
+}
+
+/** Neueste Fabric-Fassung einer Mod fuer diese Minecraft-Version (Modrinth). */
+async function modrinthFile(projectId, v) {
+  const q = `loaders=${encodeURIComponent('["fabric"]')}&game_versions=${encodeURIComponent(JSON.stringify([v]))}`;
+  const list = await getJson(`https://api.modrinth.com/v2/project/${projectId}/version?${q}`);
+  const ver = (list || []).find(x => x.version_type === 'release') || (list || [])[0];
+  const f = ver && (ver.files.find(x => x.primary) || ver.files[0]);
+  if (!f) return null;
+  return { url: f.url, sha1: f.hashes?.sha1 || null, filename: f.filename };
+}
+
+/**
+ * Fabric-Server-Starter + mods/ (Fabric API, e4mc) im Server-Ordner.
+ * Der Starter benutzt die server.jar von ensureServerJar(). Ohne Netz geht
+ * es mit dem weiter, was schon da ist.
+ */
+async function ensureFabricServer(v, dir) {
+  const launcher = path.join(dir, 'fabric-server-launch.jar');
+  const modsDir = path.join(dir, 'mods');
+  const metaFile = path.join(dir, 'fabric-server.json');
+  const meta = core.loadJson(metaFile, {}) || {};
+  ensureDir(modsDir);
+  try {
+    const loader = (await getJson(`${FABRIC_META}/versions/loader/${encodeURIComponent(v)}`))[0]?.loader?.version;
+    const installer = ((await getJson(`${FABRIC_META}/versions/installer`)) || []).find(x => x.stable)?.version;
+    if (!loader || !installer) throw new Error(`Fabric has no server for Minecraft ${v}.`);
+    if (!exists(launcher) || meta.loader !== loader || meta.installer !== installer) {
+      await downloadTo(`${FABRIC_META}/versions/loader/${encodeURIComponent(v)}/${loader}/${installer}/server/jar`, launcher);
+      meta.loader = loader; meta.installer = installer;
+    }
+    const wanted = [];
+    for (const m of SERVER_MODS) {
+      const f = await modrinthFile(m.id, v);
+      if (!f) throw new Error(`${m.name} is not available for Minecraft ${v}.`);
+      if (!/^[\w.+-]+\.jar$/i.test(f.filename)) throw new Error(`Unexpected file name from Modrinth: ${f.filename}`);
+      wanted.push(f.filename);
+      if (!exists(path.join(modsDir, f.filename))) await downloadTo(f.url, path.join(modsDir, f.filename), f.sha1);
+    }
+    meta.mods = wanted;
+    core.writeJson(metaFile, meta);
+  } catch (e) {
+    // Offline? Dann mit dem letzten Stand weiter, falls er komplett ist.
+    if (!(exists(launcher) && meta.mods?.length && meta.mods.every(f => exists(path.join(modsDir, f))))) throw e;
+    log(`Hosting: using the existing e4mc setup (${e.message}).`, 'warn');
+  }
+  // Alte Fassungen und fremde Jars raus -- auf dem Server laufen nur diese Mods.
+  for (const f of fs.readdirSync(modsDir)) {
+    if (/\.jar$/i.test(f) && !meta.mods.includes(f)) fs.rmSync(path.join(modsDir, f), { force: true });
+  }
+  fs.writeFileSync(path.join(dir, 'fabric-server-launcher.properties'), 'serverJar=server.jar\n');
+  return launcher;
 }
 
 // ---------------------------------------------------------------------------
@@ -235,6 +308,9 @@ function sendCommand(cmd) {
 
 function onServerLine(line) {
   log(`[Server] ${line}`, /\b(ERROR|FATAL|Exception)\b/.test(line) ? 'error' : 'game');
+  // e4mc meldet die Adresse fuer Freunde (kann auch spaeter neu kommen)
+  const domain = line.match(/Domain assigned: ([a-z0-9-]+(?:\.[a-z0-9-]+)+)/i);
+  if (domain) { publish({ address: domain[1].toLowerCase(), network: 'e4mc' }); return; }
   const join = line.match(/]: ([A-Za-z0-9_]{1,16}) joined the game\s*$/);
   const left = line.match(/]: ([A-Za-z0-9_]{1,16}) left the game\s*$/);
   if (join) {
@@ -284,11 +360,14 @@ async function start({ version, world, acceptEula }) {
     try { await require('./media').backupWorld(v, world, 'before hosting'); }
     catch (e) { log(`Hosting: backup skipped: ${e.message}`, 'warn'); }
 
+    const dir = hostingRoot(v);
     const jar = await ensureServerJar(v);
+    let launchJar = jar, tunnel = true;
+    try { step('Preparing the connection for your friends'); launchJar = await ensureFabricServer(v, dir); }
+    catch (e) { tunnel = false; log(`Hosting: e4mc is not available, starting without it: ${e.message}`, 'warn'); }
     step('Checking Java');
     const jre = await java.javaFor(v, settings.get().javaPath);
 
-    const dir = hostingRoot(v);
     const port = await pickPort();
     // Der Server laeuft im Launcher-Ordner, die Welt bleibt im saves-Ordner.
     fs.writeFileSync(path.join(dir, 'eula.txt'), '# Accepted in the Vortex Client launcher (https://aka.ms/MinecraftEULA)\neula=true\n');
@@ -305,7 +384,7 @@ async function start({ version, world, acceptEula }) {
     const memory = os.totalmem() >= 12 * 1024 ** 3 ? 3072 : os.totalmem() >= 8 * 1024 ** 3 ? 2048 : 1024;
     const child = spawn(jre.binary, [
       `-Xmx${memory}M`, '-Xms512M', ...(jre.major >= 22 ? ['--enable-native-access=ALL-UNNAMED'] : []),
-      '-jar', jar, '--nogui', '--universe', savesRoot(v), '--world', world, '--port', String(port)
+      '-jar', launchJar, '--nogui', '--universe', savesRoot(v), '--world', world, '--port', String(port)
     ], { cwd: dir, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     child.lineListeners = [onServerLine];
     let buf = '';
@@ -328,21 +407,16 @@ async function start({ version, world, acceptEula }) {
     await waitForReady(child);
     if (ws.cheats) sendCommand(`op ${account.username}`);
 
-    step('Opening the port in your router');
     const lan = lanAddress();
     publish({ port, lan: lan ? `${lan}:${port}` : null });
-    let pub = null, network = 'manual';
-    try {
-      const r = await Promise.race([upnp.open(port), new Promise((_, rej) => setTimeout(() => rej(new Error('The router did not answer.')), 9000))]);
-      if (r.externalIp && !upnp.isPrivateIp(r.externalIp)) { pub = r.externalIp; network = 'upnp'; }
-      else network = 'cgnat';
-      if (r.lease) server.renewTimer = setInterval(() => upnp.open(port).catch(() => {}), (r.lease - 300) * 1000);
-      log(`Hosting: port ${port} opened in the router${r.externalIp ? ` (${r.externalIp})` : ''}.`);
-    } catch (e) { log(`Hosting: router port sharing failed: ${e.message}`, 'warn'); }
-    // cgnat: der Router hat selbst keine oeffentliche IP (Anbieter teilt sie
-    // oder zweiter Router davor) -- von aussen kommt dann niemand durch.
-    if (!pub) pub = await publicIp();
-    publish({ address: pub ? `${pub}${port === 25565 ? '' : `:${port}`}` : null, network });
+    if (tunnel && state.network !== 'e4mc') {
+      step('Connecting to e4mc');
+      const t0 = Date.now();
+      while (state.network !== 'e4mc' && server?.child.exitCode === null && Date.now() - t0 < 25000) await new Promise(r => setTimeout(r, 250));
+      if (state.network !== 'e4mc') log('Hosting: e4mc did not send an address -- trying the router instead.', 'warn');
+    }
+    // Ohne e4mc: Port im Router freigeben (UPnP), sonst bleibt nur die manuelle Freigabe.
+    if (state.network !== 'e4mc') await openRouterPort(port);
 
     step('Starting Minecraft');
     const r = await launch.start({ version: v, address: `127.0.0.1:${port}`, hostedWorld: ws.name });
@@ -359,6 +433,24 @@ async function start({ version, world, acceptEula }) {
     publish({ status: 'off', error: e.message });
     throw e;
   }
+}
+
+/** Port per UPnP im Router freigeben; Adresse fuer Freunde setzen. */
+async function openRouterPort(port) {
+  step('Opening the port in your router');
+  let pub = null, network = 'manual';
+  try {
+    const r = await Promise.race([upnp.open(port), new Promise((_, rej) => setTimeout(() => rej(new Error('The router did not answer.')), 9000))]);
+    if (r.externalIp && !upnp.isPrivateIp(r.externalIp)) { pub = r.externalIp; network = 'upnp'; }
+    else network = 'cgnat';
+    if (r.lease && server) server.renewTimer = setInterval(() => upnp.open(port).catch(() => {}), (r.lease - 300) * 1000);
+    log(`Hosting: port ${port} opened in the router${r.externalIp ? ` (${r.externalIp})` : ''}.`);
+  } catch (e) { log(`Hosting: router port sharing failed: ${e.message}`, 'warn'); }
+  // cgnat: der Router hat selbst keine oeffentliche IP (Anbieter teilt sie
+  // oder zweiter Router davor) -- von aussen kommt dann niemand durch.
+  if (!pub) pub = await publicIp();
+  // e4mc kann sich in der Zwischenzeit doch noch gemeldet haben
+  if (state.network !== 'e4mc') publish({ address: pub ? `${pub}${port === 25565 ? '' : `:${port}`}` : null, network });
 }
 
 /** Server sauber beenden ("stop" speichert alles), notfalls hart. */

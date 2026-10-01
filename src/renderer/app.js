@@ -1312,7 +1312,8 @@
       <button class="icon-btn" data-hcopy="${esc(value)}" title="${esc(t('Copy'))}">${icon('copy')}</button>
       ${invite ? `<button class="btn small ghost" data-hinvite="${esc(value)}">${icon('send')}${esc(t('Invite link'))}</button>` : ''}</div></div>`;
     const notes = [];
-    if (h.network === 'upnp') notes.push(['check', t('The port was opened in your router automatically — friends can join from anywhere.')]);
+    if (h.network === 'e4mc') notes.push(['check', t('Friends can join from anywhere with this address — no router settings needed. The connection runs through e4mc.')]);
+    else if (h.network === 'upnp') notes.push(['check', t('The port was opened in your router automatically — friends can join from anywhere.')]);
     else if (h.network === 'cgnat') notes.push(['alert', t('Your internet provider shares your IP address (or there is a second router). Friends outside your Wi-Fi probably cannot join directly — forward port {0} on the first router or use a tunnel like playit.gg.', h.port)]);
     else notes.push(['alert', t('Your router did not open the port automatically. For friends outside your Wi-Fi: forward TCP port {0} to {1} in your router settings.', h.port, (h.lan || '').split(':')[0] || t('this PC'))]);
     notes.push(['info', t('Friends need Minecraft {0}. If Windows asks about the firewall for Java, click “Allow”.', h.version)]);

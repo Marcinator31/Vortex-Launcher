@@ -537,6 +537,8 @@
     'Friends need Minecraft {0}. If Windows asks about the firewall for Java, click “Allow”.': 'Freunde brauchen Minecraft {0}. Fragt Windows wegen der Firewall für Java, klicke auf „Zulassen“.',
     'When you close Minecraft, the server saves and turns off.': 'Wenn du Minecraft schließt, speichert der Server und geht aus.',
     'Backing up your world': 'Welt wird gesichert', 'Downloading the Minecraft server': 'Minecraft-Server wird heruntergeladen',
+    'Friends can join from anywhere with this address — no router settings needed. The connection runs through e4mc.': 'Mit dieser Adresse können Freunde von überall joinen – ohne Router-Einstellungen. Die Verbindung läuft über e4mc.',
+    'Preparing the connection for your friends': 'Verbindung für deine Freunde wird vorbereitet', 'Connecting to e4mc': 'Verbinde mit e4mc',
     'Starting the server': 'Server startet', 'Preparing the world': 'Welt wird vorbereitet',
     'Opening the port in your router': 'Port im Router wird freigegeben', 'Starting Minecraft': 'Minecraft startet', 'Saving the world': 'Welt wird gespeichert',
     '{0} joined your world.': '{0} ist deiner Welt beigetreten.', '{0} left your world.': '{0} hat deine Welt verlassen.',

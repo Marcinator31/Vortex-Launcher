@@ -67,8 +67,9 @@ startet den Launcher neu.
 - **Resource Packs** und **Shaders** (mit Iris-Knopf), jeweils mit Modrinth-Suche
 - **Worlds:** Welten mit Groesse und Symbol, **Backups** (manuell + automatisch vor Updates), wiederherstellen
 - **Welt hosten:** *Worlds -> Hosting starten*, Welt waehlen -- der Launcher startet einen Minecraft-Server
-  auf der Welt (Platz fuer dich + 4 Freunde), gibt den Port per UPnP im Router frei, verbindet dich selbst und
-  zeigt die Adresse/Einladungslink fuer Freunde. Schliesst du Minecraft, speichert der Server und geht aus.
+  auf der Welt (Platz fuer dich + 4 Freunde), verbindet dich selbst und zeigt die Adresse/Einladungslink fuer
+  Freunde. Die Verbindung laeuft ueber die Mod e4mc (Adresse wie `abc.e4mc.link`) -- ohne Portfreigabe, klappt
+  bei jedem Router. Faellt e4mc aus, wird der Port per UPnP im Router freigegeben. Schliesst du Minecraft, speichert der Server und geht aus.
   Vorher wird die Welt gesichert; Inventar und Position werden zwischen Einzelspieler und Server mitgenommen.
 - **Screenshots:** Galerie, Grossansicht, kopieren, im Ordner zeigen, loeschen
 - **Servers:** Live-Status, direkt beitreten

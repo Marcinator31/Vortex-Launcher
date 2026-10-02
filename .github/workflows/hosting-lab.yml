@@ -1,0 +1,31 @@
+name: hosting-lab
+# Testlabor fuer das neue Hosten (Paper ohne Weltkopie, bore-Tunnel). Nur von Hand / Branch hosting-lab.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Minecraft-Version'
+        default: '26.2'
+  push:
+    branches: [ "hosting-lab" ]
+jobs:
+  lab:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        v: [ "26.2", "1.21.11" ]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Labor
+        env:
+          LAB_V: ${{ matrix.v }}
+        run: node tools/hosting-lab/lab.js

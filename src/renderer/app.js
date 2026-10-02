@@ -1312,13 +1312,17 @@
       <button class="icon-btn" data-hcopy="${esc(value)}" title="${esc(t('Copy'))}">${icon('copy')}</button>
       ${invite ? `<button class="btn small ghost" data-hinvite="${esc(value)}">${icon('send')}${esc(t('Invite link'))}</button>` : ''}</div></div>`;
     const notes = [];
-    if (h.network === 'e4mc') notes.push(['check', t('Friends can join from anywhere with this address — no router settings needed. The connection runs through e4mc.')]);
+    if (h.network === 'playit-claim') notes.push(['alert', t('One-time setup for playit.gg: click “Confirm playit.gg”, then confirm in your browser (free guest account). After that the address for your friends appears here and stays the same next time.')]);
+    else if (h.network === 'playit') notes.push(['check', t('Friends can join from anywhere with this address — no router settings needed. The connection runs through playit.gg.')]);
+    else if (h.network === 'e4mc') notes.push(['check', t('Friends can join from anywhere with this address — no router settings needed. The connection runs through e4mc.')]);
     else if (h.network === 'upnp') notes.push(['check', t('The port was opened in your router automatically — friends can join from anywhere.')]);
     else if (h.network === 'cgnat') notes.push(['alert', t('Your internet provider shares your IP address (or there is a second router). Friends outside your Wi-Fi probably cannot join directly — forward port {0} on the first router or use a tunnel like playit.gg.', h.port)]);
     else notes.push(['alert', t('Your router did not open the port automatically. For friends outside your Wi-Fi: forward TCP port {0} to {1} in your router settings.', h.port, (h.lan || '').split(':')[0] || t('this PC'))]);
+    if (h.plugins) notes.push(['info', h.copyCreatedAt ? t('With plugins you play on a server copy of the world (made {0}). What you build there does not come back to singleplayer.', fmtDate(h.copyCreatedAt)) : t('With plugins you play on a server copy of the world. What you build there does not come back to singleplayer.')]);
     notes.push(['info', t('Friends need Minecraft {0}. If Windows asks about the firewall for Java, click “Allow”.', h.version)]);
     notes.push(['info', t('When you close Minecraft, the server saves and turns off.')]);
     panel.innerHTML = `${head}
+      ${h.network === 'playit-claim' && h.playitClaim || h.plugins ? `<div class="row-btns" style="justify-content:flex-start">${h.network === 'playit-claim' && h.playitClaim ? `<button class="btn small" data-hclaim>${icon('external')}${esc(t('Confirm playit.gg'))}</button>` : ''}${h.plugins ? `<button class="btn small ghost" data-hplugins>${icon('folder')}${esc(t('Plugins folder'))}</button>` : ''}</div>` : ''}
       <div class="host-addrs">${h.address ? addr(t('For friends (internet)'), h.address, true) : ''}${h.lan ? addr(t('Same Wi-Fi'), h.lan, false) : ''}</div>
       <div class="host-players">${players.length ? players.map(p => {
         const me = S.account && p.toLowerCase() === String(S.account.username).toLowerCase();
@@ -1340,6 +1344,8 @@
       catch (err) { fail(err); }
       return;
     }
+    if (e.target.closest('[data-hclaim]')) { if (S.hosting.playitClaim) api.openExternal(S.hosting.playitClaim); return; }
+    if (e.target.closest('[data-hplugins]')) { call(api.hosting.openPlugins(S.hosting.version)).catch(fail); return; }
     const k = e.target.closest('[data-hkick]');
     if (k) call(api.hosting.kick(k.dataset.hkick)).catch(fail);
   });
@@ -1351,11 +1357,21 @@
     if (!S.worlds.length) { try { S.worlds = (await call(api.worlds.list(v))).worlds; } catch (e) { fail(e); return; } }
     const worlds = S.worlds.filter(w => !w.missing);
     if (!worlds.length) { toast('error', t('Create a world in singleplayer first, then you can host it.')); return; }
+    let copies = {};
+    try { copies = (await call(api.hosting.info(v))).copies || {}; } catch (_) {}
     const { el, close } = openModal(`<h3>${icon('users')}${esc(t('Host a world'))}</h3>
       <p>${esc(t('Pick a world from Minecraft {0}. Up to {1} friends can join you. When you close Minecraft, the server turns off.', v, 4))}</p>
       <div class="host-pick">${worlds.map((w, i) => `<label><input type="radio" name="hw" value="${esc(w.folder)}" ${i === 0 ? 'checked' : ''} />
         ${w.icon ? `<img src="${esc(w.icon)}" alt="" />` : `<span class="wi">${icon('map')}</span>`}
         <span class="wn"><strong>${esc(w.name)}</strong><span>${esc(t('Played {0}', timeAgo(w.lastPlayed).toLowerCase()))} · ${fmtSize(w.size)}</span></span></label>`).join('')}</div>
+      <div class="host-mode">
+        <label><input type="radio" name="hmode" value="plain" checked /><span><strong>${esc(t('Without plugins'))}</strong><span>${esc(t('Your real world. Friends join through e4mc, nothing to set up.'))}</span></span></label>
+        <label><input type="radio" name="hmode" value="plugins" /><span><strong>${esc(t('With plugins (Paper)'))}</strong><span>${esc(t('Put Paper plugins into the plugins folder. Runs on a server copy of the world; friends join through playit.gg (confirm a link once).'))}</span></span></label>
+      </div>
+      <div class="host-plugins" hidden>
+        <button class="btn small ghost" data-plugins>${icon('folder')}${esc(t('Open plugins folder'))}</button>
+        <label class="host-eula" data-freshwrap hidden><label class="switch"><input type="checkbox" id="hostFresh" /><i></i></label><span data-freshtext></span></label>
+      </div>
       <div class="host-eula"><label class="switch"><input type="checkbox" id="hostEula" /><i></i></label><span>${esc(t('I accept the'))} <a id="hostEulaLink">${esc(t('Minecraft EULA'))}</a></span></div>
       <p class="muted small">${esc(t('A backup of the world is made first.'))}</p>
       <div class="row-btns"><button class="btn ghost" data-r="0">${esc(t('Cancel'))}</button><button class="btn" data-r="1" disabled>${icon('play')}${esc(t('Start hosting'))}</button></div>`);
@@ -1363,13 +1379,26 @@
     $('#hostEula', el).onchange = e => { go.disabled = !e.target.checked; };
     $('#hostEulaLink', el).onclick = e => { e.preventDefault(); api.openExternal('https://aka.ms/MinecraftEULA'); };
     $('[data-r="0"]', el).onclick = close;
+    // Mit Plugins: Plugins-Ordner und "Server-Kopie neu erstellen" (nur wenn es schon eine gibt)
+    const pluginsOn = () => $('input[name="hmode"]:checked', el)?.value === 'plugins';
+    const refreshMode = () => {
+      const folder = $('input[name="hw"]:checked', el)?.value;
+      $('.host-plugins', el).hidden = !pluginsOn();
+      const made = folder && copies[folder];
+      $('[data-freshwrap]', el).hidden = !made;
+      if (made) $('[data-freshtext]', el).textContent = t('Make a new server copy from singleplayer (the copy from {0} is replaced)', fmtDate(made));
+    };
+    el.addEventListener('change', e => { if (e.target.name === 'hmode' || e.target.name === 'hw') refreshMode(); });
+    $('[data-plugins]', el).onclick = () => call(api.hosting.openPlugins(v)).catch(fail);
     go.onclick = async () => {
       const folder = $('input[name="hw"]:checked', el)?.value;
       if (!folder) return;
+      const plugins = pluginsOn();
+      const freshCopy = plugins && $('#hostFresh', el).checked;
       close();
-      S.hosting = { status: 'starting', version: v, world: folder, worldName: worlds.find(w => w.folder === folder)?.name, step: 'Backing up your world', players: [] };
+      S.hosting = { status: 'starting', version: v, world: folder, worldName: worlds.find(w => w.folder === folder)?.name, plugins, step: 'Backing up your world', players: [] };
       renderHosting();
-      try { await call(api.hosting.start(v, folder, { acceptEula: true })); }
+      try { await call(api.hosting.start(v, folder, { acceptEula: true, plugins, freshCopy })); }
       catch (err) { toast('error', err.message, [{ label: t('Open console'), run: () => setConsole(true) }]); }
     };
   };

@@ -69,7 +69,10 @@ startet den Launcher neu.
 - **Welt hosten:** *Worlds -> Hosting starten*, Welt waehlen -- der Launcher startet einen Minecraft-Server
   auf der Welt (Platz fuer dich + 4 Freunde), verbindet dich selbst und zeigt die Adresse/Einladungslink fuer
   Freunde. Die Verbindung laeuft ueber die Mod e4mc (Adresse wie `abc.e4mc.link`) -- ohne Portfreigabe, klappt
-  bei jedem Router. Faellt e4mc aus, wird der Port per UPnP im Router freigegeben. Schliesst du Minecraft, speichert der Server und geht aus.
+  bei jedem Router. Faellt e4mc aus, wird der Port per UPnP im Router freigegeben.
+  **Mit Plugins:** im Dialog "Mit Plugins (Paper)" waehlen und Paper-Plugins in den Plugins-Ordner legen.
+  Paper laeuft auf einer Server-Kopie der Welt (Paper baut Welten beim ersten Start um), Freunde kommen ueber
+  playit.gg rein (beim ersten Mal einen Link im Browser bestaetigen). Schliesst du Minecraft, speichert der Server und geht aus.
   Vorher wird die Welt gesichert; Inventar und Position werden zwischen Einzelspieler und Server mitgenommen.
 - **Screenshots:** Galerie, Grossansicht, kopieren, im Ordner zeigen, loeschen
 - **Servers:** Live-Status, direkt beitreten

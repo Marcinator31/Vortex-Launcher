@@ -458,7 +458,12 @@ function registerIpc() {
 
   // Welt hosten (bis zu 4 Freunde, Server aus, wenn Minecraft zu ist)
   handle('hosting:state', () => ({ state: hosting.state() }));
-  handle('hosting:start', (v, folder, opts) => hosting.start({ version: v, world: folder, acceptEula: Boolean(opts && opts.acceptEula) }).then(state => ({ state })));
+  handle('hosting:start', (v, folder, opts) => hosting.start({
+    version: v, world: folder, acceptEula: Boolean(opts && opts.acceptEula),
+    plugins: Boolean(opts && opts.plugins), freshCopy: Boolean(opts && opts.freshCopy)
+  }).then(state => ({ state })));
+  handle('hosting:info', v => hosting.info(v));
+  handle('hosting:openPlugins', async v => { const err = await shell.openPath(hosting.pluginsDir(v)); if (err) throw new Error(err); return {}; });
   handle('hosting:stop', async () => { await hosting.stop('user'); return { state: hosting.state() }; });
   handle('hosting:kick', name => hosting.kick(name));
 

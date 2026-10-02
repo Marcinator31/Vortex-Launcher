@@ -39,6 +39,21 @@ function tree(dir, depth = 3, pre = '') {
   return out;
 }
 
+function files(dir, base = dir) {
+  const out = [];
+  let names = [];
+  try { names = fs.readdirSync(dir).sort(); } catch (_) { return out; }
+  for (const n of names) {
+    const p = path.join(dir, n);
+    const st = fs.lstatSync(p);
+    if (st.isDirectory()) {
+      if (/^(region|entities|poi)$/.test(n)) { out.push(`${path.relative(base, p)}/ [${fs.readdirSync(p).length}]`); continue; }
+      out.push(...files(p, base));
+    } else out.push(`${path.relative(base, p)} ${st.size}`);
+  }
+  return out;
+}
+
 function levelInfo(worldDir) {
   try {
     const doc = nbt.readGz(path.join(worldDir, 'level.dat'));
@@ -122,6 +137,7 @@ function ping(host, port) {
   let r = await run(vanilla, A, []);
   note(`vanilla create: done=${r.done} code=${r.code}`);
   note(`VANILLA WORLD: ${tree(path.join(A, 'welt')).join('\n')}`);
+  note(`VANILLA FILES: ${files(path.join(A, 'welt')).join('\n')}`);
   const vInfo = levelInfo(path.join(A, 'welt'));
   note(`vanilla level.dat: seed=${vInfo.seed} keys=${vInfo.keys}`);
   // Nether + End erzeugen lassen? Vanilla erzeugt die Dimensionen beim Start.
@@ -133,6 +149,7 @@ function ping(host, port) {
   r = await run(paper, C, ['--universe', path.join(C, 'worlds'), '--world', 'welt']);
   note(`paper on copy: done=${r.done} code=${r.code}; migration lines: ${r.lines.filter(l => /migrat|convert|moving|Upgrad/i.test(l)).slice(0, 8).join(' || ')}`);
   note(`PAPER UNIVERSE AFTER: ${tree(path.join(C, 'worlds')).join('\n')}`);
+  note(`PAPER FILES: ${files(path.join(C, 'worlds')).join('\n')}`);
   const pInfo = levelInfo(path.join(C, 'worlds', 'welt'));
   note(`paper level.dat: seed=${pInfo.seed} keys=${pInfo.keys}`);
 
@@ -142,7 +159,8 @@ function ping(host, port) {
   props(D, { 'level-name': 'welt' });
   r = await run(vanilla, D, []);
   const dInfo = levelInfo(path.join(D, 'welt'));
-  note(`vanilla after paper: done=${r.done} code=${r.code} seed=${dInfo.seed} (orig ${vInfo.seed}); errors: ${r.lines.filter(l => /ERROR|WARN/.test(l)).slice(0, 6).join(' || ')}`);
+  note(`vanilla after paper: done=${r.done} code=${r.code} seed=${dInfo.seed} (orig ${vInfo.seed})`);
+  note(`vanilla after paper LOG TAIL: ${r.lines.filter(l => !/^WARNING: /.test(l)).slice(-30).join('\n')}`);
 
   // 4) bore: Paper starten, Tunnel auf, Statusabfrage von "aussen"
   props(C, { 'level-name': 'welt' });

@@ -17,6 +17,16 @@
  *     ohne Konto -- klappt auch hinter Routern ohne UPnP. Faellt e4mc aus,
  *     wird der Router-Port per UPnP freigegeben, wenn der Router das kann.
  *
+ * MIT PLUGINS (Paper): Wahlweise laeuft statt Fabric ein Paper-Server mit
+ * den Plugins aus hosting/<version>-paper/plugins. Paper baut eine Welt beim
+ * ersten Start einseitig um (26.x: Weltdaten wandern nach dimensions/...) --
+ * der Einzelspieler faende danach Seed und Spielregeln nicht mehr. Deshalb
+ * laeuft Paper auf einer SERVER-KOPIE der Welt (wird beim naechsten Mal
+ * weitergespielt, kommt nicht in den Einzelspieler zurueck). Freunde kommen
+ * ueber das playit.gg-Plugin rein (e4mc gibt es nur fuer Fabric): beim ersten
+ * Mal einen Link im Browser bestaetigen, danach feste Adresse. Die
+ * playit-Zugangsdaten gelten fuer alle Versionen (hosting/playit-config.yml).
+ *
  * Inventar & Position des Hosters: Bis 1.21 liegen sie in level.dat
  * ("Player"), ein Server liest aber playerdata/<uuid>.dat. Deshalb werden
  * sie vor dem Start dorthin uebertragen; der Server entfernt "Player" beim
@@ -44,6 +54,15 @@ const FABRIC_META = 'https://meta.fabricmc.net/v2';
 // Mods auf dem Server -- nur diese zwei (Modrinth-Projekt-IDs). e4mc braucht Fabric API.
 const SERVER_MODS = [{ id: 'P7dR8mSH', name: 'Fabric API' }, { id: 'qANg5Jrr', name: 'e4mc' }];
 const hostingRoot = v => path.join(paths.dataRoot, 'hosting', v);
+const paperRoot = v => path.join(paths.dataRoot, 'hosting', `${v}-paper`);
+const PAPER_API = 'https://fill.papermc.io/v3/projects/paper';
+// playit.gg-Plugin (offiziell), feste Fassung mit Pruefsumme
+const PLAYIT = {
+  file: 'playit-minecraft-plugin.jar',
+  url: 'https://github.com/playit-cloud/playit-minecraft-plugin/releases/download/v0.2.0/playit-minecraft-plugin.jar',
+  sha256: '317b0311f8e9e9de25fd883ced8ff7c06845bbba56ca96b0ad0141358ae5fe88'
+};
+const playitShared = () => path.join(paths.dataRoot, 'hosting', 'playit-config.yml');
 const savesRoot = v => path.join(paths.instanceRoot(v), 'saves');
 const safeDirName = n => typeof n === 'string' && n && n === path.basename(n) && !n.startsWith('.') && !/[<>:"|?*]/.test(n);
 const dashed = u => { const h = String(u || '').replace(/-/g, '').toLowerCase(); return /^[0-9a-f]{32}$/.test(h) ? `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}` : null; };
@@ -120,11 +139,12 @@ async function ensureServerJar(v) {
 // Fabric-Server mit e4mc (Verbindung fuer Freunde ohne Portfreigabe)
 // ---------------------------------------------------------------------------
 
-async function downloadTo(url, file, sha1 = null) {
+async function downloadTo(url, file, sha1 = null, sha256 = null) {
   const res = await fetch(url, { signal: AbortSignal.timeout(5 * 60 * 1000) });
   if (!res.ok) throw new Error(`Download failed (${res.status}): ${url}`);
   const buf = Buffer.from(await res.arrayBuffer());
   if (sha1 && crypto.createHash('sha1').update(buf).digest('hex') !== sha1) throw new Error(`Download is damaged: ${path.basename(file)}`);
+  if (sha256 && crypto.createHash('sha256').update(buf).digest('hex') !== sha256) throw new Error(`Download is damaged: ${path.basename(file)}`);
   if (buf.subarray(0, 2).toString('latin1') !== 'PK') throw new Error(`Not a jar file: ${path.basename(file)}`);
   const tmp = `${file}.download`;
   fs.writeFileSync(tmp, buf);
@@ -185,6 +205,71 @@ async function ensureFabricServer(v, dir) {
   }
   fs.writeFileSync(path.join(dir, 'fabric-server-launcher.properties'), 'serverJar=server.jar\n');
   return launcher;
+}
+
+// ---------------------------------------------------------------------------
+// Paper-Server mit Plugins (playit.gg fuer Freunde)
+// ---------------------------------------------------------------------------
+
+/** Neuester stabiler Paper-Build fuer diese Version; ohne Netz der vorhandene. */
+async function ensurePaperServer(v, dir) {
+  const jar = path.join(dir, 'paper.jar');
+  const metaFile = path.join(dir, 'paper.json');
+  const meta = core.loadJson(metaFile, {}) || {};
+  try {
+    const b = await getJson(`${PAPER_API}/versions/${encodeURIComponent(v)}/builds/latest`);
+    const d = b?.downloads?.['server:default'];
+    if (!d?.url || !d?.checksums?.sha256) throw new Error(`Paper has no server for Minecraft ${v} yet.`);
+    if (!exists(jar) || meta.sha256 !== d.checksums.sha256) {
+      step('Downloading Paper', null);
+      await downloadTo(d.url, jar, null, d.checksums.sha256);
+      core.writeJson(metaFile, { build: b.id, sha256: d.checksums.sha256 });
+      log(`Hosting: Paper ${v} build ${b.id} downloaded.`);
+    }
+  } catch (e) {
+    if (!exists(jar)) throw e;
+    log(`Hosting: using the existing Paper server (${e.message}).`, 'warn');
+  }
+  // playit.gg-Plugin dazulegen; eigene Plugins des Nutzers bleiben unberuehrt
+  const plugins = path.join(dir, 'plugins');
+  ensureDir(plugins);
+  const pj = path.join(plugins, PLAYIT.file);
+  if (!exists(pj) || crypto.createHash('sha256').update(fs.readFileSync(pj)).digest('hex') !== PLAYIT.sha256) {
+    await downloadTo(PLAYIT.url, pj, null, PLAYIT.sha256);
+  }
+  // Gemeinsame playit-Zugangsdaten (einmal bestaetigt = in jeder Version dieselbe Adresse)
+  const cfg = path.join(plugins, 'playit-gg', 'config.yml');
+  if (exists(playitShared()) && !exists(cfg)) { ensureDir(path.dirname(cfg)); fs.copyFileSync(playitShared(), cfg); }
+  return jar;
+}
+
+/** Nach dem Stoppen: playit-Zugangsdaten fuer die anderen Versionen merken. */
+function savePlayitConfig(dir) {
+  const cfg = path.join(dir, 'plugins', 'playit-gg', 'config.yml');
+  try { if (exists(cfg) && /agent-secret:\s*\S{8,}/.test(fs.readFileSync(cfg, 'utf8'))) fs.copyFileSync(cfg, playitShared()); }
+  catch (e) { log(`Hosting: playit settings: ${e.message}`, 'warn'); }
+}
+
+/** Server-Kopien einer Version: { ordner: erstellt am } */
+function paperCopies(v) {
+  return core.loadJson(path.join(paperRoot(v), 'copies.json'), {}) || {};
+}
+
+/** Server-Kopie der Welt anlegen (oder die vorhandene weiterbenutzen). */
+async function paperCopy(v, world, fresh) {
+  const universe = path.join(paperRoot(v), 'worlds');
+  const target = path.join(universe, world);
+  const copies = paperCopies(v);
+  if (fresh || !exists(path.join(target, 'level.dat'))) {
+    step('Copying your world for the server');
+    // Alte Kopie samt Paper-Nebenwelten (1.21: <welt>_nether, <welt>_the_end) weg
+    for (const d of [target, `${target}_nether`, `${target}_the_end`]) await fs.promises.rm(d, { recursive: true, force: true });
+    ensureDir(universe);
+    await fs.promises.cp(path.join(savesRoot(v), world), target, { recursive: true, filter: f => path.basename(f) !== 'session.lock' });
+    copies[world] = new Date().toISOString();
+    core.writeJson(path.join(paperRoot(v), 'copies.json'), copies);
+  }
+  return { universe, dir: target, createdAt: copies[world] || null };
 }
 
 // ---------------------------------------------------------------------------
@@ -311,7 +396,18 @@ function sendCommand(cmd) {
 }
 
 function onServerLine(line) {
-  log(`[Server] ${line}`, /\b(ERROR|FATAL|Exception)\b/.test(line) ? 'error' : 'game');
+  // playit-Links sind Zugangsdaten: wer sie kennt, uebernimmt den Tunnel -- nicht ins Log
+  const safe = line.replace(/(playit\.gg\/claim\/)[0-9a-f]+/gi, '$1***').replace(/(guest-account\/)[\w-]+/gi, '$1***');
+  log(`[Server] ${safe}`, /\b(ERROR|FATAL|Exception)\b/.test(line) ? 'error' : 'game');
+  const claim = line.match(/please visit: (https:\/\/playit\.gg\/claim\/[0-9a-f]{8,64})\b/i);
+  if (claim) { publish({ playitClaim: claim[1], network: state.network === 'playit' ? 'playit' : 'playit-claim' }); return; }
+  const tunnel = line.match(/found minecraft java tunnel: ([a-z0-9-]+(?:\.[a-z0-9-]+)+(?::\d{1,5})?)/i)
+    || line.match(/playit\.gg:\S*\s+([a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:joinmc\.link|ply\.gg|playit\.gg)(?::\d{1,5})?)\s*$/i);
+  if (tunnel) {
+    if (state.network !== 'playit') notify('success', 'playit.gg is connected -- friends can join now.');
+    publish({ address: tunnel[1].toLowerCase(), network: 'playit', playitClaim: null });
+    return;
+  }
   // e4mc meldet die Adresse fuer Freunde (kann auch spaeter neu kommen)
   const domain = line.match(/Domain assigned: ([a-z0-9-]+(?:\.[a-z0-9-]+)+)/i);
   if (domain) { publish({ address: domain[1].toLowerCase(), network: 'e4mc' }); return; }
@@ -336,13 +432,14 @@ function waitForReady(child) {
       else if (/FAILED TO BIND TO PORT/i.test(line)) lastError = 'The server port is already in use.';
       else if (/session\.lock|already locked/i.test(line)) lastError = 'This world is open somewhere else. Close it in Minecraft first.';
       else if (/Preparing spawn area: (\d+)%/.test(line)) step('Preparing the world', Number(line.match(/(\d+)%/)[1]));
+      else if (/World storage migration is required/i.test(line)) step('Converting the world for Paper (only the first time)');
     };
     child.lineListeners.push(onLine);
     child.once('exit', code => { clearTimeout(timer); reject(new Error(lastError || `The server stopped while starting (code ${code}). Open the console for details.`)); });
   });
 }
 
-async function start({ version, world, acceptEula }) {
+async function start({ version, world, acceptEula, plugins = false, freshCopy = false }) {
   if (state.status !== 'off') throw new Error('You are already hosting a world.');
   const v = instances.requireVersion(version);
   if (!safeDirName(world)) throw new Error('Invalid world.');
@@ -357,18 +454,28 @@ async function start({ version, world, acceptEula }) {
 
   const ws = worldSettings(worldDir);
   const uuid = dashed(account.uuid);
-  state = { status: 'starting', version: v, world, worldName: ws.name, host: account.username, players: [], maxFriends: MAX_FRIENDS, step: 'Backing up your world', percent: null, startedAt: Date.now() };
+  state = { status: 'starting', version: v, world, worldName: ws.name, host: account.username, players: [], maxFriends: MAX_FRIENDS, plugins: Boolean(plugins), step: 'Backing up your world', percent: null, startedAt: Date.now() };
   publish();
 
   try {
     try { await require('./media').backupWorld(v, world, 'before hosting'); }
     catch (e) { log(`Hosting: backup skipped: ${e.message}`, 'warn'); }
 
-    const dir = hostingRoot(v);
-    const jar = await ensureServerJar(v);
-    let launchJar = jar, tunnel = true;
-    try { step('Preparing the connection for your friends'); launchJar = await ensureFabricServer(v, dir); }
-    catch (e) { tunnel = false; log(`Hosting: e4mc is not available, starting without it: ${e.message}`, 'warn'); }
+    const dir = plugins ? paperRoot(v) : hostingRoot(v);
+    ensureDir(dir);
+    let launchJar, tunnel = true, universe = savesRoot(v), serverWorldDir = worldDir, copy = null;
+    if (plugins) {
+      // Paper mit Plugins: eigene Server-Kopie (Paper baut die Welt um), playit statt e4mc
+      launchJar = await ensurePaperServer(v, dir);
+      copy = await paperCopy(v, world, freshCopy);
+      universe = copy.universe;
+      serverWorldDir = copy.dir;
+      publish({ copyCreatedAt: copy.createdAt });
+    } else {
+      launchJar = await ensureServerJar(v);
+      try { step('Preparing the connection for your friends'); launchJar = await ensureFabricServer(v, dir); }
+      catch (e) { tunnel = false; log(`Hosting: e4mc is not available, starting without it: ${e.message}`, 'warn'); }
+    }
     step('Checking Java');
     const jre = await java.javaFor(v, settings.get().javaPath);
 
@@ -382,13 +489,13 @@ async function start({ version, world, acceptEula }) {
       gamemode: ws.gamemode, difficulty: ws.difficulty, hardcore: String(ws.hardcore),
       'spawn-protection': 0, 'white-list': 'false', 'allow-flight': 'true', 'enable-status': 'true'
     });
-    try { movePlayerOut(worldDir, uuid); } catch (e) { log(`Hosting: player data: ${e.message}`, 'warn'); }
+    try { movePlayerOut(serverWorldDir, uuid); } catch (e) { log(`Hosting: player data: ${e.message}`, 'warn'); }
 
     step('Starting the server');
     const memory = os.totalmem() >= 12 * 1024 ** 3 ? 3072 : os.totalmem() >= 8 * 1024 ** 3 ? 2048 : 1024;
     const child = spawn(jre.binary, [
       `-Xmx${memory}M`, '-Xms512M', ...(jre.major >= 22 ? ['--enable-native-access=ALL-UNNAMED'] : []),
-      '-jar', launchJar, '--nogui', '--universe', savesRoot(v), '--world', world, '--port', String(port)
+      '-jar', launchJar, '--nogui', '--universe', universe, '--world', world, '--port', String(port)
     ], { cwd: dir, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     child.lineListeners = [onServerLine];
     let buf = '';
@@ -396,12 +503,14 @@ async function start({ version, world, acceptEula }) {
       buf += String(d);
       const parts = buf.split(/\r?\n/);
       buf = parts.pop();
-      for (const l of parts) if (l.trim()) for (const fn of child.lineListeners) { try { fn(l); } catch (_) {} }
+      // Farbcodes (ANSI) raus, sonst passen die Muster nicht
+      for (const roh of parts) { const l = roh.replace(/\x1b\[[0-9;]*m/g, ''); if (l.trim()) for (const fn of child.lineListeners) { try { fn(l); } catch (_) {} } }
     };
     child.stdout.on('data', feed);
     child.stderr.on('data', feed);
     child.on('error', e => log(`Hosting: ${e.message}`, 'error'));
-    server = { child, port, version: v, world, worldDir, uuid, sessionId: null, renewTimer: null };
+    // copy: Paper-Kopie -- dann nichts in die Einzelspielerwelt zurueckschreiben
+    server = { child, port, version: v, world, worldDir, uuid, dir, copy: Boolean(copy), sessionId: null, renewTimer: null };
     child.on('exit', code => {
       log(`Hosting: server stopped (code ${code}).`);
       // Beim Stoppen raeumt stop() auf, beim Starten der catch-Zweig von start().
@@ -413,14 +522,16 @@ async function start({ version, world, acceptEula }) {
 
     const lan = lanAddress();
     publish({ port, lan: lan ? `${lan}:${port}` : null });
-    if (tunnel && state.network !== 'e4mc') {
-      step('Connecting to e4mc');
+    // Adresse fuer Freunde abwarten: e4mc bzw. playit (oder dessen Bestaetigungslink)
+    const ziel = plugins ? ['playit', 'playit-claim'] : ['e4mc'];
+    if (tunnel && !ziel.includes(state.network)) {
+      step(plugins ? 'Connecting to playit.gg' : 'Connecting to e4mc');
       const t0 = Date.now();
-      while (state.network !== 'e4mc' && server?.child.exitCode === null && Date.now() - t0 < 25000) await new Promise(r => setTimeout(r, 250));
-      if (state.network !== 'e4mc') log('Hosting: e4mc did not send an address -- trying the router instead.', 'warn');
+      while (!ziel.includes(state.network) && server?.child.exitCode === null && Date.now() - t0 < 25000) await new Promise(r => setTimeout(r, 250));
+      if (!ziel.includes(state.network)) log('Hosting: no address from the tunnel -- trying the router instead.', 'warn');
     }
-    // Ohne e4mc: Port im Router freigeben (UPnP), sonst bleibt nur die manuelle Freigabe.
-    if (state.network !== 'e4mc') await openRouterPort(port);
+    // Ohne Tunnel: Port im Router freigeben (UPnP), sonst bleibt nur die manuelle Freigabe.
+    if (!ziel.includes(state.network)) await openRouterPort(port);
 
     step('Starting Minecraft');
     const r = await launch.start({ version: v, address: `127.0.0.1:${port}`, hostedWorld: ws.name });
@@ -453,8 +564,8 @@ async function openRouterPort(port) {
   // cgnat: der Router hat selbst keine oeffentliche IP (Anbieter teilt sie
   // oder zweiter Router davor) -- von aussen kommt dann niemand durch.
   if (!pub) pub = await publicIp();
-  // e4mc kann sich in der Zwischenzeit doch noch gemeldet haben
-  if (state.network !== 'e4mc') publish({ address: pub ? `${pub}${port === 25565 ? '' : `:${port}`}` : null, network });
+  // Ein Tunnel kann sich in der Zwischenzeit doch noch gemeldet haben
+  if (!['e4mc', 'playit', 'playit-claim'].includes(state.network)) publish({ address: pub ? `${pub}${port === 25565 ? '' : `:${port}`}` : null, network });
 }
 
 /** Server sauber beenden ("stop" speichert alles), notfalls hart. */
@@ -479,7 +590,8 @@ async function cleanup(error, reason) {
   server = null;
   clearInterval(s.renewTimer);
   if (s.port) await upnp.close(s.port).catch(() => {});
-  try { movePlayerBack(s.worldDir, s.uuid); } catch (e) { log(`Hosting: player data: ${e.message}`, 'warn'); }
+  if (s.copy) savePlayitConfig(s.dir);
+  else try { movePlayerBack(s.worldDir, s.uuid); } catch (e) { log(`Hosting: player data: ${e.message}`, 'warn'); }
   const name = state.worldName;
   state = { status: 'off', error: error || null };
   publish();
@@ -502,4 +614,17 @@ function kick(name) {
   return {};
 }
 
-module.exports = { start, stop, kick, sendCommand, onSessions, state: () => state, active: () => Boolean(server), MAX_FRIENDS };
+/** Fuer den Hosting-Dialog: vorhandene Server-Kopien (Paper) dieser Version. */
+function info(version) {
+  const v = instances.requireVersion(version);
+  return { copies: paperCopies(v) };
+}
+
+/** Plugins-Ordner des Paper-Servers dieser Version (wird angelegt). */
+function pluginsDir(version) {
+  const d = path.join(paperRoot(instances.requireVersion(version)), 'plugins');
+  ensureDir(d);
+  return d;
+}
+
+module.exports = { start, stop, kick, sendCommand, onSessions, info, pluginsDir, state: () => state, active: () => Boolean(server), MAX_FRIENDS };

@@ -503,6 +503,13 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px;
 .host-pick .wn { flex: 1; min-width: 0; }
 .host-pick .wn strong { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .host-pick .wn span { font-size: 12px; color: var(--dim); }
+.host-mode { display: grid; gap: 8px; margin: 4px 0 12px; }
+.host-mode label { display: flex; gap: 10px; align-items: flex-start; padding: 9px 11px; border-radius: 11px; border: 1px solid var(--line); background: var(--inner); cursor: pointer; }
+.host-mode label:has(input:checked) { border-color: var(--violet); background: #191230; }
+.host-mode input { margin-top: 3px; }
+.host-mode strong { display: block; font-size: 13.5px; }
+.host-mode span span { font-size: 12px; color: var(--dim); }
+.host-plugins { display: grid; gap: 8px; justify-items: start; margin-bottom: 10px; }
 .host-eula { display: flex; gap: 10px; align-items: center; font-size: 12.5px; color: var(--text-2); margin-bottom: 4px; }
 .host-eula a { color: var(--violet-2); cursor: pointer; }
 

@@ -76,7 +76,9 @@ contextBridge.exposeInMainWorld('vortex', {
     state: () => call('hosting:state'),
     start: (v, folder, opts) => call('hosting:start', v, folder, opts || {}),
     stop: () => call('hosting:stop'),
-    kick: name => call('hosting:kick', name)
+    kick: name => call('hosting:kick', name),
+    info: v => call('hosting:info', v),
+    openPlugins: v => call('hosting:openPlugins', v)
   },
   shots: {
     list: v => call('shots:list', v),

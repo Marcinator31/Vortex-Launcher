@@ -29,7 +29,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const config = require('./config');
-const { paths, ensureDir, exists, loadJson, writeJson, log } = require('./core');
+const { paths, ensureDir, exists, loadJson, writeJson, log, compareVersions } = require('./core');
 const vortexfiles = require('./vortexfiles');
 
 const dir = () => path.join(paths.dataRoot, 'beta-test');
@@ -113,9 +113,13 @@ async function rebuild() {
   const [stable, beta] = await Promise.all([fetchManifest('manifest.json'), fetchManifest('manifest-beta.json')]);
   const groups = [];
   // Derselbe Punkt steht oft in mehreren Release-Notizen (z. B. 2.35.0 und
-  // 2.35.1, wenn dieselbe Version nachgebaut wurde). Pro Minecraft-Version und
-  // Datei nur einmal abfragen -- beim neuesten Build, in dem er vorkommt.
+  // 2.35.1, wenn dieselbe Version nachgebaut wurde) -- und jedes Update gibt
+  // es fuer mehrere Minecraft-Versionen mit denselben Notizen. Jeder Punkt
+  // wird nur EINMAL abgefragt (beim neuesten Build, in dem er vorkommt); die
+  // Gruppe merkt sich, fuer welche Minecraft-Versionen sie gilt.
   const gesehen = new Set();
+  const nachSchluessel = new Map();
+  const alteIds = new Map();           // neue Punkt-ID -> fruehere IDs (je Minecraft-Version)
   for (const [mc, e] of Object.entries(beta.versions || {})) {
     for (const [id, f] of Object.entries(e.files || {})) {
       const online = stable.versions?.[mc]?.files?.[id]?.version || null;
@@ -133,24 +137,44 @@ async function rebuild() {
       for (const c of changes) {
         const version = vortexfiles.cleanVersion(c.version);
         for (const sec of parseNotes(c.notes)) {
-          sec.items = sec.items.filter(text => {
-            const k = `${mc}|${id}|${text}`;
-            if (gesehen.has(k)) return false;
+          const key = hash(`${id}|${version}|${sec.heading}`);
+          let g = nachSchluessel.get(key);
+          if (!g) {
+            g = {
+              key, mc, mcs: [], fileId: id, kind: vortexfiles.kindOf(id), component: String(f.name || id), version,
+              betaVersion: vortexfiles.cleanVersion(f.version), heading: sec.heading, items: []
+            };
+            nachSchluessel.set(key, g);
+            groups.push(g);
+          }
+          if (!g.mcs.includes(mc)) g.mcs.push(mc);
+          for (const text of sec.items) {
+            const itemId = hash(`${id}|${version}|${text}`);
+            const alt = hash(`${mc}|${id}|${version}|${text}`);
+            if (!alteIds.has(itemId)) alteIds.set(itemId, []);
+            alteIds.get(itemId).push(alt);
+            const k = `${id}|${text}`;
+            if (gesehen.has(k)) continue;
             gesehen.add(k);
-            return true;
-          });
-          if (!sec.items.length) continue;
-          groups.push({
-            key: hash(`${mc}|${id}|${version}|${sec.heading}`),
-            mc, fileId: id, kind: vortexfiles.kindOf(id), component: String(f.name || id), version,
-            betaVersion: vortexfiles.cleanVersion(f.version), heading: sec.heading,
-            items: sec.items.map(text => ({ id: hash(`${mc}|${id}|${version}|${text}`), text }))
-          });
+            g.items.push({ id: itemId, text });
+          }
         }
       }
     }
   }
+  for (let i = groups.length - 1; i >= 0; i--) {
+    const g = groups[i];
+    if (!g.items.length) { groups.splice(i, 1); continue; }
+    g.mcs.sort((a, b) => compareVersions(b, a));
+    g.mc = g.mcs.join(', ');
+  }
   const s = load();
+  // Haken aus der Zeit, als jeder Punkt je Minecraft-Version einzeln dastand,
+  // uebernehmen (und Berichte umhaengen).
+  for (const [neuId, alte] of alteIds) {
+    if (!s.checked[neuId] && alte.some(a => s.checked[a])) s.checked[neuId] = alte.map(a => s.checked[a]).find(Boolean);
+    for (const r of s.reports) if (alte.includes(r.itemId)) r.itemId = neuId;
+  }
   s.groups = groups;
   s.generatedAt = new Date().toISOString();
   // Haken zu Punkten, die es nicht mehr gibt (freigegeben), aufraeumen.
@@ -185,7 +209,7 @@ function view(s = load()) {
 /** Ist fuer diese Datei alles abgehakt und kein Fehler offen? */
 function fileComplete(mc, fileId, s = load()) {
   for (const g of s.groups) {
-    if (g.mc !== mc || g.fileId !== fileId) continue;
+    if (!(g.mcs || [g.mc]).includes(mc) || g.fileId !== fileId) continue;
     for (const i of g.items) {
       if (!s.checked[i.id]) return false;
       if (s.reports.some(r => r.itemId === i.id && r.status !== 'resolved')) return false;

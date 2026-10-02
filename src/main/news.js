@@ -37,17 +37,28 @@ async function get() {
   const m = vortexfiles.manifest();
   const items = [];
   for (const n of m.news || []) items.push({ kind: 'news', title: n.title, lines: textLines(n.body), date: n.date });
-  const uploads = [];
+  // Dasselbe Update gibt es fuer mehrere Minecraft-Versionen -- als EIN
+  // Eintrag zeigen, mit allen Versionen in einer Zeile.
+  const nachDatei = new Map();
   for (const [v, e] of Object.entries(m.versions)) {
     for (const f of Object.values(e.files)) {
       if (!f.uploadedAt) continue;
-      const notes = textLines(f.notes);
-      uploads.push({
-        kind: 'update', title: `${f.name} ${vortexfiles.cleanVersion(f.version)}${f.channel === 'beta' ? ' (Beta)' : ''}`,
-        lines: [...notes, `Available for Minecraft ${v}.`].slice(0, 6), date: f.uploadedAt, v
-      });
+      const titel = `${f.name} ${vortexfiles.cleanVersion(f.version)}${f.channel === 'beta' ? ' (Beta)' : ''}`;
+      let u = nachDatei.get(titel);
+      if (!u) {
+        u = { kind: 'update', title: titel, notes: textLines(f.notes), mcs: [], date: f.uploadedAt, v };
+        nachDatei.set(titel, u);
+      }
+      if (!u.mcs.includes(v)) u.mcs.push(v);
+      if (String(f.uploadedAt) > String(u.date)) u.date = f.uploadedAt;
+      if (compareVersions(v, u.v) > 0) u.v = v;
     }
   }
+  const uploads = [...nachDatei.values()].map(u => {
+    const mcs = u.mcs.sort((a, b) => compareVersions(b, a));
+    return { kind: u.kind, title: u.title, date: u.date, v: u.v,
+      lines: [...u.notes.slice(0, 5), `Available for Minecraft ${mcs.join(', ')}.`] };
+  });
   uploads.sort((a, b) => String(b.date).localeCompare(String(a.date)) || compareVersions(b.v, a.v));
   items.push(...uploads.slice(0, 4));
   items.push(...await launcherReleases());

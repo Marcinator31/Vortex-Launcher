@@ -1,21 +1,21 @@
 name: hosting-lab
-# Testlabor fuer das neue Hosten (Paper ohne Weltkopie, bore-Tunnel). Nur von Hand / Branch hosting-lab.
+# Testlabor fuer das Hosten (Paper direkt auf der Welt, bore-Tunnel). Nur von Hand / Branch hosting-lab.
+# Berichte: Release "hosting-lab" (Vorabversion), Dateien report-<version>.txt
 on:
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Minecraft-Version'
-        default: '26.2'
   push:
     branches: [ "hosting-lab" ]
+    paths: [ "tools/hosting-lab/**", "src/main/paperwelt.js", "src/main/bore.js", ".github/workflows/hosting-lab.yml" ]
+permissions:
+  contents: write
 jobs:
   lab:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        v: [ "26.2" ]
+        v: [ "26.2", "26.1.2", "1.21.11" ]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -29,3 +29,10 @@ jobs:
         env:
           LAB_V: ${{ matrix.v }}
         run: node tools/hosting-lab/lab.js
+      - name: Bericht hochladen
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view hosting-lab >/dev/null 2>&1 || gh release create hosting-lab --prerelease --title "Hosting-Labor" --notes "Automatische Testberichte (nicht zum Herunterladen gedacht)."
+          gh release upload hosting-lab lab/report-${{ matrix.v }}.txt --clobber

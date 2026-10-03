@@ -57,7 +57,7 @@ const rejects = async (p, re) => { try { await p; } catch (e) { assert.match(e.m
 
 (async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vf-'));
-  const ENV = process.env.TEST_PG ? { DATABASE_URL: process.env.TEST_PG } : { DATA_DIR: dir };
+  const ENV = { ...(process.env.TEST_PG ? { DATABASE_URL: process.env.TEST_PG } : { DATA_DIR: dir }), COSMETIC_ADMINS: 'Dave' };
   const srv = await start({ env: ENV, port: 0, hasJoined: fakeJoined });
   const url = `ws://127.0.0.1:${srv.port}/ws`;
   try {
@@ -198,6 +198,49 @@ const rejects = async (p, re) => { try { await p; } catch (e) { assert.match(e.m
     await carl.req('block', { uuid: a.uuid });
     await sleep(50);
     assert.equal(alice.state.friends.some(f => f.name === 'Carl'), false, 'block removes friendship');
+
+    // --- Cosmetics: fuer alle lesbar, Bild nur ohne Blockieren, Melden, Sperren
+    const pngKopf = (w, h) => { const b = Buffer.alloc(33); b.writeUInt32BE(0x89504e47, 0); b.writeUInt32BE(0x0d0a1a0a, 4); b.writeUInt32BE(13, 8); b.write('IHDR', 12, 'latin1'); b.writeUInt32BE(w, 16); b.writeUInt32BE(h, 20); return b.toString('base64'); };
+    let cs = await alice.req('cosmetics.set', { cape: 'custom', hat: 'crown', particles: 'hearts', density: 3 });
+    assert.equal(cs.cosmetics.cape, '', 'custom cape needs a picture first');
+    await rejects(alice.req('cosmetics.image', { image: pngKopf(300, 200) }), /2:1/);
+    await rejects(alice.req('cosmetics.image', { image: Buffer.from('hello world').toString('base64') }), /not a PNG or JPEG/);
+    await rejects(alice.req('cosmetics.image', { image: Buffer.alloc(90 * 1024).toString('base64') }), /too big/);
+    const up = await alice.req('cosmetics.image', { image: pngKopf(512, 256) });
+    assert.match(up.hash, /^[0-9a-f]{32}$/);
+    await rejects(alice.req('cosmetics.image', { image: pngKopf(1024, 512) }), /wait a moment/);
+    cs = await alice.req('cosmetics.set', { cape: 'custom', hat: 'crown', particles: 'hearts', density: 3, extra: 'x' });
+    assert.deepEqual(cs.cosmetics, { cape: 'custom', hat: 'crown', particles: 'hearts', density: 3 });
+    cs = await bob.req('cosmetics.set', { cape: 'vortex_blue', hat: 'Top Hat!', particles: '', density: 99 });
+    assert.deepEqual(cs.cosmetics, { cape: 'vortex_blue', hat: '', particles: '', density: 2 });
+    let cg = await bob.req('cosmetics.get', { uuids: [a.uuid, bob.me.uuid, 'kaputt', carl.me.uuid] });
+    assert.equal(cg.players[a.uuid].image, up.hash);
+    assert.equal(cg.players[a.uuid].hat, 'crown');
+    assert.equal(cg.players[bob.me.uuid].cape, 'vortex_blue');
+    assert.equal(cg.players[carl.me.uuid], undefined, 'no cosmetics stored for Carl');
+    const bild = await bob.req('cosmetics.imageGet', { hash: up.hash });
+    assert.equal(bild.image, pngKopf(512, 256));
+    // Carl hat Alice blockiert: Hut ja, Bild nein
+    cg = await carl.req('cosmetics.get', { uuids: [a.uuid] });
+    assert.equal(cg.players[a.uuid].hat, 'crown');
+    assert.equal(cg.players[a.uuid].cape, '');
+    assert.equal(cg.players[a.uuid].image, null);
+    await rejects(carl.req('cosmetics.imageGet', { hash: up.hash }), /not found/);
+    // Melden und Sperren (Dave ist Cosmetics-Admin)
+    assert.equal((await bob.req('cosmetics.report', { uuid: a.uuid })).reported, true);
+    await rejects(bob.req('cosmetics.report', { uuid: carl.me.uuid }), /no cape picture/);
+    await rejects(bob.req('cosmetics.reports'), /Only cosmetics admins/);
+    const rep = await dave.req('cosmetics.reports');
+    assert.equal(rep.reports[0].name, 'Alice');
+    assert.equal(rep.reports[0].count, 1);
+    await dave.req('cosmetics.moderate', { uuid: a.uuid, action: 'ban' });
+    cg = await bob.req('cosmetics.get', { uuids: [a.uuid] });
+    assert.equal(cg.players[a.uuid].cape, '');
+    assert.equal(cg.players[a.uuid].hat, 'crown', 'only the picture is removed');
+    await rejects(bob.req('cosmetics.imageGet', { hash: up.hash }), /not found/);
+    await sleep(10);
+    await rejects(alice.req('cosmetics.image', { image: pngKopf(512, 256) }), /cannot upload/);
+    assert.equal((await dave.req('cosmetics.reports')).reports.length, 0);
 
     // Freund entfernen
     await alice.req('friend.remove', { uuid: bob.me.uuid });

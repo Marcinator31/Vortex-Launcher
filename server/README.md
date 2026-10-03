@@ -58,6 +58,10 @@ an den Vortex Client weiter.
   (ohne `DATABASE_URL` nutzt er eine SQLite-Datei in `/data`). Davor gehört ein
   HTTPS-Proxy (z. B. Caddy), damit die Adresse mit `wss://` erreichbar ist.
 - **Sperren:** Umgebungsvariable `BANNED` = Komma-Liste von Minecraft-Namen oder UUIDs.
+- **Cosmetics:** Der Vortex Client legt hier Cape, Hut und Partikel ab (für alle Vortex-Spieler sichtbar) und
+  lädt eigene Cape-Bilder hoch (JPEG/PNG, 2:1, max. 80 KB). Wer jemanden blockiert, sieht dessen Bild nicht.
+  Gemeldete Bilder (`/reportcape <name>` im Spiel) prüfen die Minecraft-Namen in `COSMETIC_ADMINS`
+  (Komma-Liste) mit den Befehlen `cosmetics.reports` und `cosmetics.moderate` (entfernen/sperren/entsperren).
 - **Status:** `GET /` zeigt, wie viele Spieler registriert und gerade verbunden sind.
 - Nachrichten älter als 180 Tage werden automatisch gelöscht.
 

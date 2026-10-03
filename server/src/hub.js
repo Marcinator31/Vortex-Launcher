@@ -14,6 +14,7 @@
  * etwas nicht sehen darf, bekommt es gar nicht erst geschickt.
  */
 const crypto = require('crypto');
+const cosmetics = require('./cosmetics');
 
 const now = () => Date.now();
 const LIMITS = {
@@ -92,10 +93,13 @@ const safeJson = (s, d) => { try { return JSON.parse(s); } catch (_) { return d;
 const ADDRESS = /^[a-z0-9.-]{1,253}(:\d{1,5})?$/i;
 
 class Hub {
-  constructor(db, { log = () => {}, banned = [] } = {}) {
+  constructor(db, { log = () => {}, banned = [], cosmeticAdmins = [] } = {}) {
     this.db = db;
     this.log = log;
     this.banned = new Set(banned.map(s => String(s).toLowerCase()));
+    // Duerfen eigene Cape-Bilder entfernen/sperren (Minecraft-Namen)
+    this.cosmeticAdmins = new Set(cosmeticAdmins.map(s => String(s).toLowerCase()));
+    this.lastImageUpload = new Map();
     this.users = new Map();
     this.byName = new Map();
     this.friends = new Map();
@@ -904,6 +908,96 @@ const OPS = {
     if (!uuid) return { found: false };
     return { found: true, ...this._pub(uuid), friend: this.isFriend(me, uuid), blocked: this.hasBlocked(me, uuid) };
   }
+};
+
+// ---- Cosmetics -------------------------------------------------------------
+// Auswahl: fuer alle lesbar. Eigenes Bild: nur, wer nicht blockiert ist bzw.
+// selbst nicht blockiert hat, und nur, solange es nicht gesperrt ist.
+
+Object.assign(OPS, {
+  async 'cosmetics.set'(me, a) {
+    const sel = cosmetics.cleanSelection(a);
+    const row = await this.db.get('SELECT image_hash FROM cosmetics WHERE uuid = ?', [me]);
+    if (sel.cape === 'custom' && !row?.image_hash) sel.cape = '';
+    await this.db.run(`INSERT INTO cosmetics (uuid, data, updated) VALUES (?, ?, ?)
+      ON CONFLICT (uuid) DO UPDATE SET data = excluded.data, updated = excluded.updated`, [me, JSON.stringify(sel), now()]);
+    return { cosmetics: sel };
+  },
+
+  async 'cosmetics.image'(me, a) {
+    const row = await this.db.get('SELECT image_banned FROM cosmetics WHERE uuid = ?', [me]);
+    if (row?.image_banned) fail('You cannot upload cape pictures any more.');
+    const last = this.lastImageUpload.get(me) || 0;
+    if (now() - last < cosmetics.LIMITS.uploadEveryMs) fail('Please wait a moment before uploading another picture.');
+    const buf = cosmetics.checkImage(a.image, fail);
+    const hash = crypto.createHash('sha256').update(buf).digest('hex').slice(0, 32);
+    this.lastImageUpload.set(me, now());
+    await this.db.run(`INSERT INTO cosmetics (uuid, image, image_hash, updated) VALUES (?, ?, ?, ?)
+      ON CONFLICT (uuid) DO UPDATE SET image = excluded.image, image_hash = excluded.image_hash, updated = excluded.updated`,
+    [me, buf.toString('base64'), hash, now()]);
+    this.log(`cosmetics: ${this.users.get(me)?.name} uploaded cape picture ${hash}`);
+    return { hash };
+  },
+
+  async 'cosmetics.get'(me, a) {
+    const ids = [...new Set((Array.isArray(a.uuids) ? a.uuids : []).map(x => String(x).replace(/-/g, '').toLowerCase()))]
+      .filter(x => /^[0-9a-f]{32}$/.test(x)).slice(0, cosmetics.LIMITS.getMax);
+    const players = {};
+    for (const uuid of ids) {
+      const row = await this.db.get('SELECT data, image_hash, image_banned FROM cosmetics WHERE uuid = ?', [uuid]);
+      if (!row) continue;
+      const sel = cosmetics.cleanSelection(safeJson(row.data, {}));
+      const zeigeBild = row.image_hash && !row.image_banned && !this.hasBlocked(me, uuid) && !this.hasBlocked(uuid, me);
+      if (sel.cape === 'custom' && !zeigeBild) sel.cape = '';
+      players[uuid] = { ...sel, image: sel.cape === 'custom' ? row.image_hash : null };
+    }
+    return { players };
+  },
+
+  async 'cosmetics.imageGet'(me, a) {
+    const hash = String(a.hash || '');
+    if (!/^[0-9a-f]{32}$/.test(hash)) fail('Picture not found.');
+    const row = await this.db.get('SELECT uuid, image, image_banned FROM cosmetics WHERE image_hash = ?', [hash]);
+    if (!row || row.image_banned || !row.image || this.hasBlocked(me, row.uuid) || this.hasBlocked(row.uuid, me)) fail('Picture not found.');
+    return { hash, image: row.image };
+  },
+
+  async 'cosmetics.report'(me, a) {
+    const target = String(a.uuid || '').replace(/-/g, '').toLowerCase();
+    if (!/^[0-9a-f]{32}$/.test(target) || target === me) fail('Player not found.');
+    const row = await this.db.get('SELECT image_hash FROM cosmetics WHERE uuid = ?', [target]);
+    if (!row?.image_hash) fail('This player has no cape picture.');
+    await this.db.run(`INSERT INTO cosmetic_reports (reporter, target, image_hash, created) VALUES (?, ?, ?, ?)
+      ON CONFLICT (reporter, target) DO UPDATE SET image_hash = excluded.image_hash, created = excluded.created`, [me, target, row.image_hash, now()]);
+    this.log(`cosmetics: ${this.users.get(me)?.name} reported the cape picture of ${this.users.get(target)?.name || target}`);
+    return { reported: true };
+  },
+
+  async 'cosmetics.reports'(me) {
+    this._cosmeticAdmin(me);
+    const rows = await this.db.all(`SELECT target, image_hash, COUNT(*) AS n, MAX(created) AS created FROM cosmetic_reports
+      GROUP BY target, image_hash ORDER BY n DESC LIMIT 100`);
+    return { reports: rows.map(r => ({ uuid: r.target, name: this.users.get(r.target)?.name || '', hash: r.image_hash, count: Number(r.n), last: Number(r.created) })) };
+  },
+
+  async 'cosmetics.moderate'(me, a) {
+    this._cosmeticAdmin(me);
+    const target = String(a.uuid || '').replace(/-/g, '').toLowerCase();
+    if (!/^[0-9a-f]{32}$/.test(target)) fail('Player not found.');
+    const ban = a.action === 'ban' ? 1 : a.action === 'unban' ? 0 : null;
+    if (a.action === 'remove' || ban === 1) {
+      await this.db.run("UPDATE cosmetics SET image = '', image_hash = '' WHERE uuid = ?", [target]);
+      await this.db.run('DELETE FROM cosmetic_reports WHERE target = ?', [target]);
+    }
+    if (ban !== null) await this.db.run('UPDATE cosmetics SET image_banned = ? WHERE uuid = ?', [ban, target]);
+    else if (a.action !== 'remove') fail('Unknown action.');
+    this.log(`cosmetics: ${this.users.get(me)?.name} -> ${a.action} for ${this.users.get(target)?.name || target}`);
+    return { done: true };
+  }
+});
+
+Hub.prototype._cosmeticAdmin = function (me) {
+  if (!this.cosmeticAdmins.has(String(this.users.get(me)?.name || '').toLowerCase())) fail('Only cosmetics admins can do that.');
 };
 
 Hub.prototype._checkGroupAdd = function (me, uuid) {

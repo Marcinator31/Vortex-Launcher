@@ -23,6 +23,8 @@
  *   dort sind die drei Welten nur VERKNUEPFUNGEN (Windows: Junctions, keine
  *   Adminrechte noetig) auf die Ordner der Originalwelt. Paper schreibt
  *   also direkt in die Originalwelt, nichts wird kopiert oder verschoben.
+ *   Damit Minecraft die Verknuepfungen annimmt, steht die Welt in
+ *   allowed_symlinks.txt des Servers.
  *
  * Bewusst ohne Electron-Abhaengigkeit: das Hosting-Labor (tools/hosting-lab)
  * testet genau diesen Code mit echten Servern.
@@ -102,6 +104,9 @@ function vorbereiten(worldDir, version, serverDir) {
   verknuepfe(worldDir, path.join(universe, name));
   verknuepfe(path.join(worldDir, 'DIM-1'), path.join(universe, `${name}_nether`, 'DIM-1'));
   verknuepfe(path.join(worldDir, 'DIM1'), path.join(universe, `${name}_the_end`, 'DIM1'));
+  // Minecraft lehnt Welten mit Verknuepfungen ab, ausser ihr Ziel steht in
+  // allowed_symlinks.txt im Server-Ordner -- nur die eigene Welt erlauben.
+  fs.writeFileSync(path.join(serverDir, 'allowed_symlinks.txt'), `[prefix]${path.resolve(worldDir)}\n`);
   return { universe, world: name, neu: false };
 }
 

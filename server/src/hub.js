@@ -100,6 +100,7 @@ class Hub {
     // Duerfen eigene Cape-Bilder entfernen/sperren (Minecraft-Namen)
     this.cosmeticAdmins = new Set(cosmeticAdmins.map(s => String(s).toLowerCase()));
     this.lastImageUpload = new Map();
+    this.lastEmote = new Map();
     this.users = new Map();
     this.byName = new Map();
     this.friends = new Map();
@@ -995,6 +996,20 @@ Object.assign(OPS, {
     return { done: true };
   }
 });
+
+// Emotes: an alle anderen Vortex-Spieler, die gerade im Spiel sind (die Clients
+// zeigen es nur, wenn der Spieler in ihrer Naehe ist). Hoechstens eins pro Sekunde.
+OPS['emote.play'] = async function (me, a) {
+  const emote = String(a.emote || '');
+  if (!/^[a-z_]{1,24}$/.test(emote)) fail('Unknown emote.');
+  if (now() - (this.lastEmote.get(me) || 0) < 1000) return { sent: false };
+  this.lastEmote.set(me, now());
+  for (const uuid of this.conns.keys()) {
+    if (uuid === me || this.hasBlocked(uuid, me) || this.hasBlocked(me, uuid)) continue;
+    this.emit(uuid, 'emote', { uuid: me, emote }, 'game');
+  }
+  return { sent: true };
+};
 
 Hub.prototype._cosmeticAdmin = function (me) {
   if (!this.cosmeticAdmins.has(String(this.users.get(me)?.name || '').toLowerCase())) fail('Only cosmetics admins can do that.');

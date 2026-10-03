@@ -179,6 +179,10 @@ async function warteStatus(st, ms) {
   pruefe('hosting.start laeuft durch', !fehlerStart && st.status === 'running', fehlerStart || `${Math.round((Date.now() - t0) / 1000)} s`);
   if (fehlerStart) { say(konsole().slice(-40).join('\n')); fin(); return; }
   pruefe('Adresse fuer Freunde ueber bore.pub', st.network === 'bore' && /^bore\.pub:\d+$/.test(st.address || ''), st.address);
+  const kAll = konsole();
+  const iDone = kAll.findIndex(l => /Done \(/.test(l));
+  say('  Konsole nach "Done":');
+  for (const l of kAll.slice(Math.max(0, iDone - 2), iDone + 12)) say(`    ${l}`);
   const opZeile = konsole().find(l => /jeb_|operator|does not exist/i.test(l) && !/joined|Starting|Welt/.test(l));
   pruefe('Hoster (echtes Konto jeb_) ist OP', /Made jeb_ a server operator|already an operator/i.test(opZeile || ''), opZeile || '-');
   const ingame = path.join(DATA, 'hosting', 'ingame');

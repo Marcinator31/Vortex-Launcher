@@ -179,6 +179,14 @@ async function warteStatus(st, ms) {
   pruefe('hosting.start laeuft durch', !fehlerStart && st.status === 'running', fehlerStart || `${Math.round((Date.now() - t0) / 1000)} s`);
   if (fehlerStart) { say(konsole().slice(-40).join('\n')); fin(); return; }
   pruefe('Adresse fuer Freunde ueber bore.pub', st.network === 'bore' && /^bore\.pub:\d+$/.test(st.address || ''), st.address);
+  // Kommen Antworten auf Befehle sofort -- oder erst, wenn der naechste Befehl kommt?
+  await sleep(4000);
+  say(`  4 s nach dem Start, Antworten auf die Start-Befehle: ${konsole().filter(l => /operator|difficulty|game mode|pvp|does not exist/i.test(l)).map(l => l.replace(/^\[[^\]]*\]:?\s*/, '')).join(' / ') || 'KEINE'}`);
+  let ab0 = konsole().length;
+  hosting.sendCommand('list');
+  await sleep(3000);
+  const listAntwort = konsole().slice(ab0).find(l => /There are \d+/.test(l));
+  pruefe('Befehl wird sofort beantwortet (ohne weiteren Befehl)', Boolean(listAntwort), listAntwort || 'keine Antwort nach 3 s');
   const kAll = konsole();
   const iDone = kAll.findIndex(l => /Done \(/.test(l));
   say('  Konsole nach "Done":');

@@ -59,7 +59,7 @@ const mocks = {
     writeJson: (f, o) => { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, JSON.stringify(o, null, 2)); }
   },
   './instances': { requireVersion: v => { if (v !== V) throw new Error(`Unknown version ${v}`); return v; } },
-  './accounts': { current: () => ({ id: 'a1', username: 'VortexLab', uuid: '0123456789abcdef0123456789abcdef' }), idOf: a => a.id },
+  './accounts': { current: () => ({ id: 'a1', username: 'jeb_', uuid: '853c80ef3c3749fdaa49938b674adae6' }), idOf: a => a.id },
   './settings': { get: () => ({ javaPath: '' }) },
   './java': { javaFor: async () => ({ binary: javaBin, major: 25 }) },
   './media': { backupWorld: async () => { say('  (Backup vor dem Hosten angefordert)'); } },
@@ -179,7 +179,8 @@ async function warteStatus(st, ms) {
   pruefe('hosting.start laeuft durch', !fehlerStart && st.status === 'running', fehlerStart || `${Math.round((Date.now() - t0) / 1000)} s`);
   if (fehlerStart) { say(konsole().slice(-40).join('\n')); fin(); return; }
   pruefe('Adresse fuer Freunde ueber bore.pub', st.network === 'bore' && /^bore\.pub:\d+$/.test(st.address || ''), st.address);
-  pruefe('Hoster ist OP', /Made VortexLab a server operator|Opped VortexLab|already an operator/i.test(konsole().join('\n')), '');
+  const opZeile = konsole().find(l => /jeb_|operator|does not exist/i.test(l) && !/joined|Starting|Welt/.test(l));
+  pruefe('Hoster (echtes Konto jeb_) ist OP', /Made jeb_ a server operator|already an operator/i.test(opZeile || ''), opZeile || '-');
   const ingame = path.join(DATA, 'hosting', 'ingame');
   const stJson = JSON.parse(fs.readFileSync(path.join(ingame, 'state.json'), 'utf8'));
   pruefe('state.json fuers Spiel', stJson.status === 'running' && stJson.address === st.address, JSON.stringify(stJson).slice(0, 160));
@@ -216,7 +217,7 @@ async function warteStatus(st, ms) {
   fs.writeFileSync(path.join(ingame, 'inbox', `${Date.now()}-1.json`), JSON.stringify({ type: 'settings', patch: { difficulty: 'peaceful' } }));
   pruefe('Hosting Options im Spiel -> Schwierigkeit peaceful', Boolean(await warteZeile(/peaceful/i, ab)), await warteZeile(/peaceful/i, ab, 1));
   pruefe('inbox abgearbeitet', fs.readdirSync(path.join(ingame, 'inbox')).length === 0, '');
-  try { hosting.player('VortexLab', 'kick'); pruefe('sich selbst rauswerfen verboten', false); } catch (e) { pruefe('sich selbst rauswerfen verboten', /That would be you/.test(e.message), e.message); }
+  try { hosting.player('jeb_', 'kick'); pruefe('sich selbst rauswerfen verboten', false); } catch (e) { pruefe('sich selbst rauswerfen verboten', /That would be you/.test(e.message), e.message); }
 
   // 5) Plugins
   let plug = null;
@@ -250,6 +251,8 @@ async function warteStatus(st, ms) {
   pruefe('Einzelspieler startet die Welt wieder', r.done && r.code === 0, `code ${r.code}`);
   pruefe('gleicher Seed', seed1 && seed1 === seed2, `${seed1} / ${seed2}`);
   say(`  Schwierigkeit danach: ${r.lines.filter(l => /difficulty/i.test(l)).map(l => l.replace(/^\[[^\]]*\]:?\s*/, '')).slice(-1)[0] || '?'}`);
+  say('\n--- alle Schwierigkeits-Zeilen der Konsole ---');
+  for (const l of konsole().filter(x => /difficult/i.test(x))) say(`  ${l}`);
   say(`\nERGEBNIS: ${fehler ? `${fehler} Fehler` : 'alles OK'}`);
   fin();
 })().catch(e => { say(`ABBRUCH: ${e.stack || e.message}`); fehler++; fin(); });

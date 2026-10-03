@@ -1578,7 +1578,7 @@
       ${row(t('Cheats for friends'), t('Friends become operators and can use commands like /gamemode or /tp. You always can.'), sw('cheats'))}
       ${row(t('Whitelist'), t('Only players you allow can join. Players online right now are allowed automatically.'), sw('whitelist'))}
       ${row(t('Max. players'), t('Including you. Takes effect after a restart.'), `<input class="hv-num" type="number" min="2" max="50" data-hset="maxPlayers" value="${Number(s.maxPlayers) || 8}" />`)}
-      <p class="muted small hv-hint">${esc(hostingOn() ? t('Changes apply right away. You can also change them in Minecraft: Esc → Hosting Options.') : t('Saved for this world and used every time you host it.'))}</p>
+      <p class="muted small hv-hint">${esc(hostingOn() ? t('Changes apply right away. You can also change them in Minecraft: Esc → Hosting.') : t('Saved for this world and used every time you host it.'))}</p>
     </section>`;
   }
   async function saveHostSetting(patch) {

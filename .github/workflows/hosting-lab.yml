@@ -29,10 +29,16 @@ jobs:
         env:
           LAB_V: ${{ matrix.v }}
         run: node tools/hosting-lab/lab.js
+      - name: E2E (hosting.js)
+        if: always()
+        env:
+          LAB_V: ${{ matrix.v }}
+        run: node tools/hosting-lab/e2e.js
       - name: Bericht hochladen
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release view hosting-lab >/dev/null 2>&1 || gh release create hosting-lab --prerelease --title "Hosting-Labor" --notes "Automatische Testberichte (nicht zum Herunterladen gedacht)."
-          gh release upload hosting-lab lab/report-${{ matrix.v }}.txt --clobber
+          gh release upload hosting-lab lab/report-${{ matrix.v }}.txt --clobber || true
+          gh release upload hosting-lab lab-e2e/report-e2e-${{ matrix.v }}.txt --clobber || true

@@ -62,7 +62,7 @@ async function install(projectId, version) {
   let ver = null;
   for (const l of LOADERS) { ver = modrinth.bestVersion(list, v, l); if (ver) break; }
   const file = ver && modrinth.primaryFile(ver.files, '.jar');
-  if (!file) throw new Error(`“${project.title}” has no build for Minecraft ${v}.`);
+  if (!file) throw new Error(`${project.title} has no build for Minecraft ${v}.`);
   if (!modrinth.safeJar(file.filename)) throw new Error('The file name is not safe.');
   const dir = pluginsDir(v);
   const meta = loadJson(metaFile(v), {}) || {};

@@ -36,6 +36,7 @@ const discord = require('./discord');
 const news = require('./news');
 const friends = require('./friends');
 const hosting = require('./hosting');
+const plugins = require('./plugins');
 
 const { paths, log, notify } = core;
 
@@ -454,18 +455,29 @@ function registerIpc() {
   handle('worlds:backup', (v, folder) => media.backupWorld(v, folder, 'manual'));
   handle('worlds:restore', (v, id) => media.restoreBackup(v, id));
   handle('worlds:deleteBackup', (v, id) => media.deleteBackup(v, id));
-  handle('worlds:delete', (v, folder) => media.deleteWorld(v, folder));
+  handle('worlds:delete', (v, folder) => {
+    if (hosting.isHosted(v, folder)) throw new Error('You are hosting this world right now. Stop the server first.');
+    return media.deleteWorld(v, folder);
+  });
 
-  // Welt hosten (bis zu 4 Freunde, Server aus, wenn Minecraft zu ist)
+  // Welt hosten (Paper + Plugins, direkt auf der echten Welt, Server aus, wenn Minecraft zu ist)
   handle('hosting:state', () => ({ state: hosting.state() }));
   handle('hosting:start', (v, folder, opts) => hosting.start({
-    version: v, world: folder, acceptEula: Boolean(opts && opts.acceptEula),
-    plugins: Boolean(opts && opts.plugins), freshCopy: Boolean(opts && opts.freshCopy)
+    version: v, world: folder, acceptEula: Boolean(opts && opts.acceptEula)
   }).then(state => ({ state })));
-  handle('hosting:info', v => hosting.info(v));
-  handle('hosting:openPlugins', async v => { const err = await shell.openPath(hosting.pluginsDir(v)); if (err) throw new Error(err); return {}; });
   handle('hosting:stop', async () => { await hosting.stop('user'); return { state: hosting.state() }; });
-  handle('hosting:kick', name => hosting.kick(name));
+  handle('hosting:restart', () => hosting.restart().then(state => ({ state })));
+  handle('hosting:console', () => hosting.console());
+  handle('hosting:command', text => hosting.command(text));
+  handle('hosting:getSettings', (v, folder) => hosting.getSettings(v, folder));
+  handle('hosting:setSettings', (v, folder, patch) => hosting.setSettings(v, folder, patch && typeof patch === 'object' ? patch : {}));
+  handle('hosting:player', (name, action) => hosting.player(name, action));
+  handle('hosting:banned', () => hosting.banned());
+  handle('plugins:search', (q, v, page, sort) => plugins.search(q, v, page, sort));
+  handle('plugins:install', (id, v) => plugins.install(id, v).then(r => { hosting.pluginsChanged(v); return r; }));
+  handle('plugins:list', v => plugins.list(v));
+  handle('plugins:remove', (v, file) => { const r = plugins.remove(v, file); hosting.pluginsChanged(v); return r; });
+  handle('plugins:openFolder', async v => { const err = await shell.openPath(plugins.pluginsDir(v)); if (err) throw new Error(err); return {}; });
 
   // Screenshots
   handle('shots:list', v => ({ shots: media.listScreenshots(v) }));

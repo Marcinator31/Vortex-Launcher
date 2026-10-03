@@ -321,7 +321,9 @@ async function start({ version, serverId = null, address = null, safe = false, h
         // Minecraft-Versionen (26.2, 1.21.11) benutzen dieselben Einstellungen.
         `-Dvortex.shared.dir=${path.join(paths.dataRoot, 'shared')}`,
         // Beta-Test-Checkliste im Spiel (nur wenn der Beta-Kanal aktiv ist).
-        ...(vortexfiles.betaActive() ? [`-Dvortex.beta.dir=${require('./betatest').dir()}`] : [])
+        ...(vortexfiles.betaActive() ? [`-Dvortex.beta.dir=${require('./betatest').dir()}`] : []),
+        // Gehostete Welt: "Hosting Options" im Pausenmenue (Austausch ueber Dateien)
+        ...(server?.hosted ? [`-Dvortex.hosting.dir=${require('./hosting').ingameDir()}`] : [])
       ]
     };
     if (server) options.quickPlay = { type: 'multiplayer', identifier: server.address };

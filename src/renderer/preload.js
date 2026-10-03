@@ -76,9 +76,20 @@ contextBridge.exposeInMainWorld('vortex', {
     state: () => call('hosting:state'),
     start: (v, folder, opts) => call('hosting:start', v, folder, opts || {}),
     stop: () => call('hosting:stop'),
-    kick: name => call('hosting:kick', name),
-    info: v => call('hosting:info', v),
-    openPlugins: v => call('hosting:openPlugins', v)
+    restart: () => call('hosting:restart'),
+    console: () => call('hosting:console'),
+    command: text => call('hosting:command', text),
+    getSettings: (v, folder) => call('hosting:getSettings', v, folder),
+    setSettings: (v, folder, patch) => call('hosting:setSettings', v, folder, patch || {}),
+    player: (name, action) => call('hosting:player', name, action),
+    banned: () => call('hosting:banned')
+  },
+  plugins: {
+    search: (q, v, page, sort) => call('plugins:search', q, v, page, sort),
+    install: (id, v) => call('plugins:install', id, v),
+    list: v => call('plugins:list', v),
+    remove: (v, file) => call('plugins:remove', v, file),
+    openFolder: v => call('plugins:openFolder', v)
   },
   shots: {
     list: v => call('shots:list', v),
@@ -187,6 +198,7 @@ contextBridge.exposeInMainWorld('vortex', {
     betatest: on('betatest'),
     serverHistory: on('serverHistory'),
     repair: on('repair'),
-    hosting: on('hosting')
+    hosting: on('hosting'),
+    hostingConsole: on('hosting-console')
   }
 });

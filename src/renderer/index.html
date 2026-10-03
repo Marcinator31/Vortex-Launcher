@@ -110,6 +110,7 @@
       <button class="nav-item" data-page="shots"><svg><use href="#i-camera"/></svg><span>Screenshots</span></button>
       <p class="nav-label">PLAY</p>
       <button class="nav-item" data-page="servers"><svg><use href="#i-server"/></svg><span>Servers</span></button>
+      <button class="nav-item" data-page="hosting"><svg><use href="#i-globe"/></svg><span>Hosting</span><i class="nav-live" id="hostingDot" hidden></i></button>
       <button class="nav-item" data-page="friends"><svg><use href="#i-users"/></svg><span>Friends</span><i class="nav-count" id="friendsBadge" hidden></i></button>
       <button class="nav-item" data-page="skins"><svg><use href="#i-shirt"/></svg><span>Skins</span></button>
       <div class="nav-sep"></div>
@@ -304,13 +305,51 @@
       <div class="toolbar">
         <span class="muted small" id="worldsSummary"></span>
         <span class="grow"></span>
-        <button class="btn" id="hostStart"><svg><use href="#i-users"/></svg>Start hosting</button>
         <button class="btn ghost" id="worldsBackupAll"><svg><use href="#i-save"/></svg>Back up all</button>
         <button class="btn ghost" id="worldsBackups"><svg><use href="#i-history"/></svg>Backup folder</button>
         <button class="icon-btn" id="worldsFolder" title="Open saves folder"><svg><use href="#i-folder"/></svg></button>
       </div>
-      <div class="host-panel" id="hostPanel" hidden></div>
       <div class="world-list" id="worldList"></div>
+    </section>
+
+    <!-- ================= HOSTING ================= -->
+    <section class="page" id="page-hosting">
+      <div class="page-head">
+        <div><p class="eyebrow">MULTIPLAYER</p><h2>Hosting</h2><p class="muted">Turn one of your worlds into a server for your friends — with console, settings and plugins. No account, nothing to confirm.</p></div>
+        <div class="head-tools"><div class="instance-chip" data-instance-chip></div></div>
+      </div>
+      <div id="hvTop"></div>
+      <div class="tabs" data-tabs="hosting">
+        <button class="tab active" data-tab="console">Console</button>
+        <button class="tab" data-tab="players">Players <span class="count" id="hvPlayersCount">0</span></button>
+        <button class="tab" data-tab="settings">Settings</button>
+        <button class="tab" data-tab="plugins">Plugins <span class="count" id="hvPluginsCount">0</span></button>
+      </div>
+      <div class="tab-panel active" data-panel="hosting-console">
+        <div class="hv-console" id="hvConsole"></div>
+        <form class="hv-cmd" id="hvCmdForm" autocomplete="off">
+          <span class="hv-prompt">/</span>
+          <input id="hvCmd" placeholder="Command, e.g. time set day" spellcheck="false" maxlength="500" />
+          <button class="btn" type="submit" id="hvCmdSend"><svg><use href="#i-send"/></svg>Send</button>
+        </form>
+        <div class="hv-quick" id="hvQuick"></div>
+      </div>
+      <div class="tab-panel" data-panel="hosting-players"><div id="hvPlayers"></div></div>
+      <div class="tab-panel" data-panel="hosting-settings"><div id="hvSettings"></div></div>
+      <div class="tab-panel" data-panel="hosting-plugins">
+        <div class="toolbar">
+          <span class="muted small grow" id="hvPluginsInfo"></span>
+          <button class="btn ghost" id="hvPluginsFolder"><svg><use href="#i-folder"/></svg>Open folder</button>
+        </div>
+        <div class="list" id="hvPluginList"></div>
+        <h4 class="hv-sub">Add plugins</h4>
+        <div class="toolbar">
+          <label class="search grow"><svg><use href="#i-search"/></svg><input id="hvPluginQuery" placeholder="Search Modrinth plugins, e.g. EssentialsX, LuckPerms, WorldEdit" autocomplete="off" spellcheck="false" /></label>
+          <select id="hvPluginSort" class="select"><option value="downloads">Downloads</option><option value="relevance">Relevance</option><option value="follows">Followers</option><option value="updated">Recently updated</option><option value="newest">Newest</option></select>
+        </div>
+        <div class="results" id="hvPluginResults"></div>
+        <div class="more"><button class="btn ghost" id="hvPluginMore" hidden>Load more</button></div>
+      </div>
     </section>
 
     <!-- ================= SCREENSHOTS ================= -->

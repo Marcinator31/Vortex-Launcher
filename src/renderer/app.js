@@ -222,6 +222,7 @@
       case 'worlds': renderChips(); if (entering) loadWorlds(); break;
       case 'shots': renderChips(); if (entering) loadShots(); break;
       case 'servers': renderServers(); if (entering) refreshStatuses(S.servers); break;
+      case 'hosting': if (entering) enterHosting(); else renderHosting(); break;
       case 'friends': if (entering) loadFriends(); else renderFriends(); break;
       case 'skins': if (entering) enterSkins(); break;
       case 'settings': renderSettings(); loadPerf(); break;
@@ -1231,7 +1232,8 @@
               ${w.backups.length ? `<button class="bk-toggle ${open ? 'open' : ''}" data-bk>${esc(w.backups.length === 1 ? t('1 backup') : t('{0} backups', w.backups.length))}${icon('chevron')}</button>` : `<span>${esc(t('No backups'))}</span>`}</div>
           </div>
           <div class="item-actions">
-            ${w.missing ? '' : `<button class="btn small" data-wbackup>${icon('save')}${esc(t('Back up'))}</button>
+            ${w.missing ? '' : `${hostingOn() && S.hosting.world === w.folder && S.hosting.version === contentVersion() ? `<span class="hv-live-chip">${esc(t('HOSTED'))}</span>` : ''}<button class="btn small ghost" data-whost title="${esc(t('Host this world for your friends'))}">${icon('globe')}${esc(t('Host'))}</button>
+            <button class="btn small" data-wbackup>${icon('save')}${esc(t('Back up'))}</button>
             <button class="icon-btn" data-wdelete title="${esc(t('Move to recycle bin'))}">${icon('trash')}</button>`}
           </div>
         </div>
@@ -1250,6 +1252,7 @@
     const folder = w.dataset.folder;
     const world = S.worlds.find(x => x.folder === folder);
     const v = contentVersion();
+    if (e.target.closest('[data-whost]')) { HV.world = folder; showPage('hosting'); return; }
     if (e.target.closest('[data-bk]')) { S.openBackups.has(folder) ? S.openBackups.delete(folder) : S.openBackups.add(folder); renderWorlds(); return; }
     const bb = e.target.closest('[data-wbackup]');
     if (bb) {
@@ -1288,125 +1291,418 @@
   $('#worldsFolder').onclick = () => call(api.open('saves', contentVersion())).catch(fail);
 
   // -----------------------------------------------------------------------
-  // Welt hosten: bis zu 4 Freunde, Server aus, sobald Minecraft zu ist
+  // Hosting: eine Welt als Server (Paper + Plugins) mit Konsole, Spielern,
+  // Einstellungen und Plugin-Installer. Server aus, sobald Minecraft zu ist.
   // -----------------------------------------------------------------------
   S.hosting = { status: 'off' };
   const hostingOn = () => S.hosting.status !== 'off';
+  const HV = {
+    world: null, worlds: [], lines: [], settings: null, plugins: [], banned: [], hist: [], histPos: -1, eula: false,
+    search: { query: '', sort: 'downloads', results: [], page: 0, hasNext: false, loaded: false, token: 0 }
+  };
+  try { HV.eula = localStorage.getItem('vortex.hostEula') === '1'; } catch (_) {}
+  const hvVersion = () => (hostingOn() ? S.hosting.version : contentVersion());
+  const hvWorld = () => (hostingOn() ? S.hosting.world : HV.world);
+  const GAMEMODES = { survival: 'Survival', creative: 'Creative', adventure: 'Adventure', spectator: 'Spectator' };
+  const DIFFICULTIES = { peaceful: 'Peaceful', easy: 'Easy', normal: 'Normal', hard: 'Hard' };
+  const QUICK = ['time set day', 'weather clear', 'save-all', 'list', 'gamerule keep_inventory true', 'tps'];
+  const hvTab = () => $('[data-tabs="hosting"] .tab.active')?.dataset.tab || 'console';
+
+  async function enterHosting() {
+    renderChips();
+    const v = hvVersion();
+    try { HV.worlds = (await call(api.worlds.list(v))).worlds.filter(w => !w.missing); } catch (e) { HV.worlds = []; fail(e); }
+    if (!HV.worlds.some(w => w.folder === HV.world)) HV.world = HV.worlds[0]?.folder || null;
+    try { HV.lines = (await call(api.hosting.console())).lines || []; } catch (_) {}
+    renderHosting();
+    renderHostConsole(true);
+    loadHostSettings();
+    loadHostPlugins();
+    if (hvTab() === 'plugins' && !HV.search.loaded) runPluginSearch(true);
+  }
+
+  /** Alles, was vom Zustand des Servers abhaengt. */
   function renderHosting() {
-    const panel = $('#hostPanel');
+    $('#hostingDot').hidden = !hostingOn();
+    if (S.page !== 'hosting') return;
+    renderHostTop();
+    renderHostPlayers();
+    renderHostConsoleInput();
+    if (hostingOn() && S.hosting.settings) { HV.settings = S.hosting.settings; renderHostSettings(); }
+  }
+
+  function renderHostTop() {
+    const root = $('#hvTop');
     const h = S.hosting;
-    $('#hostStart').hidden = hostingOn();
-    if (!hostingOn()) { panel.hidden = true; panel.innerHTML = ''; return; }
-    panel.hidden = false;
+    const chip = $('#page-hosting [data-instance-chip]');
+    if (chip) chip.hidden = hostingOn();
+    if (!hostingOn()) {
+      const v = hvVersion();
+      if (!HV.worlds.length) { root.innerHTML = `<div class="hv-card">${emptyHtml('map', t('No worlds yet'), t('Create a world in singleplayer first, then you can host it.'))}</div>`; return; }
+      root.innerHTML = `<div class="hv-card">
+        <div class="hv-label">${esc(t('Pick a world'))}</div>
+        <div class="hv-worlds">${HV.worlds.map(w => `<button class="hv-world ${w.folder === HV.world ? 'sel' : ''}" data-hw="${esc(w.folder)}">
+          ${w.icon ? `<img src="${esc(w.icon)}" alt="" />` : `<span class="wi">${icon('map')}</span>`}
+          <span class="wn"><strong>${esc(w.name)}</strong><span>${esc(t('Played {0}', timeAgo(w.lastPlayed).toLowerCase()))} · ${fmtSize(w.size)}</span></span></button>`).join('')}</div>
+        <div class="hv-start">
+          ${HV.eula ? '' : `<label class="host-eula"><label class="switch"><input type="checkbox" id="hvEula" /><i></i></label><span>${esc(t('I accept the'))} <a data-external="https://aka.ms/MinecraftEULA">${esc(t('Minecraft EULA'))}</a></span></label>`}
+          <span class="muted small grow">${esc(t('Paper server on your real world (no copy) — a backup is made first. Minecraft {0} starts and joins by itself.', v))}</span>
+          <button class="btn" id="hvGo" ${HV.eula && HV.world ? '' : 'disabled'}>${icon('play')}${esc(t('Start server'))}</button>
+        </div></div>`;
+      return;
+    }
     const running = h.status === 'running';
     const players = h.players || [];
+    const max = h.settings?.maxPlayers || 8;
+    const sub = running ? t('{0} of {1} players', players.length, max) : h.status === 'stopping' ? t('Stopping') : t('Starting');
     const head = `<div class="host-head"><i class="host-dot ${running ? 'on' : ''}"></i>
-      <div class="host-title"><strong>${esc(t('Hosting “{0}”', h.worldName || h.world))}</strong>
-      <span class="muted">Minecraft ${esc(h.version)} · ${esc(t('{0} of {1} players', players.length, (h.maxFriends || 4) + 1))}</span></div>
-      <button class="btn small danger" id="hostStop" ${h.status === 'stopping' ? 'disabled' : ''}>${icon('stop')}${esc(t('Stop server'))}</button></div>`;
+      <div class="host-title"><strong>${esc(h.worldName || h.world)}</strong>
+      <span class="muted">Minecraft ${esc(h.version)} · Paper · ${esc(sub)}</span></div>
+      ${running ? `<button class="btn small ghost" id="hvRestart" title="${esc(t('Restarts the server, for example for new plugins. Minecraft stays open; join again afterwards.'))}">${icon('refresh')}${esc(t('Restart'))}</button>` : ''}
+      <button class="btn small danger" id="hvStop" ${h.status === 'stopping' ? 'disabled' : ''}>${icon('stop')}${esc(t('Stop server'))}</button></div>`;
     if (!running) {
-      panel.innerHTML = `${head}<div class="host-step"><span class="spinner"></span>${esc(t(h.step || 'Starting the server'))}${h.percent != null ? ` · ${h.percent}%` : ''}</div>`;
+      root.innerHTML = `<div class="host-panel">${head}<div class="host-step"><span class="spinner"></span>${esc(tr(h.step || 'Starting the server'))}${h.percent != null ? ` · ${h.percent}%` : ''}</div></div>`;
       return;
     }
     const addr = (label, value, invite) => `<div class="host-addr"><span class="lbl">${esc(label)}</span><div class="val"><code>${esc(value)}</code>
       <button class="icon-btn" data-hcopy="${esc(value)}" title="${esc(t('Copy'))}">${icon('copy')}</button>
       ${invite ? `<button class="btn small ghost" data-hinvite="${esc(value)}">${icon('send')}${esc(t('Invite link'))}</button>` : ''}</div></div>`;
     const notes = [];
-    if (h.network === 'playit-claim') notes.push(['alert', t('One-time setup for playit.gg: click “Confirm playit.gg”, then confirm in your browser (free guest account). After that the address for your friends appears here and stays the same next time.')]);
-    else if (h.network === 'playit') notes.push(['check', t('Friends can join from anywhere with this address — no router settings needed. The connection runs through playit.gg.')]);
-    else if (h.network === 'e4mc') notes.push(['check', t('Friends can join from anywhere with this address — no router settings needed. The connection runs through e4mc.')]);
+    if (h.network === 'bore') notes.push(['check', t('Friends can join from anywhere with this address — no account, nothing to confirm. The connection runs through bore.pub (free); the address usually stays the same next time.')]);
+    else if (h.network === 'reconnecting') notes.push(['alert', t('The connection to bore.pub dropped — reconnecting…')]);
     else if (h.network === 'upnp') notes.push(['check', t('The port was opened in your router automatically — friends can join from anywhere.')]);
-    else if (h.network === 'cgnat') notes.push(['alert', t('Your internet provider shares your IP address (or there is a second router). Friends outside your Wi-Fi probably cannot join directly — forward port {0} on the first router or use a tunnel like playit.gg.', h.port)]);
+    else if (h.network === 'cgnat') notes.push(['alert', t('bore.pub could not be reached and your internet provider shares your IP address. Friends outside your Wi-Fi probably cannot join right now — try a restart later.')]);
     else notes.push(['alert', t('Your router did not open the port automatically. For friends outside your Wi-Fi: forward TCP port {0} to {1} in your router settings.', h.port, (h.lan || '').split(':')[0] || t('this PC'))]);
-    if (h.plugins) notes.push(['info', h.copyCreatedAt ? t('With plugins you play on a server copy of the world (made {0}). What you build there does not come back to singleplayer.', fmtDate(h.copyCreatedAt)) : t('With plugins you play on a server copy of the world. What you build there does not come back to singleplayer.')]);
     notes.push(['info', t('Friends need Minecraft {0}. If Windows asks about the firewall for Java, click “Allow”.', h.version)]);
     notes.push(['info', t('When you close Minecraft, the server saves and turns off.')]);
-    panel.innerHTML = `${head}
-      ${h.network === 'playit-claim' && h.playitClaim || h.plugins ? `<div class="row-btns" style="justify-content:flex-start">${h.network === 'playit-claim' && h.playitClaim ? `<button class="btn small" data-hclaim>${icon('external')}${esc(t('Confirm playit.gg'))}</button>` : ''}${h.plugins ? `<button class="btn small ghost" data-hplugins>${icon('folder')}${esc(t('Plugins folder'))}</button>` : ''}</div>` : ''}
-      <div class="host-addrs">${h.address ? addr(t('For friends (internet)'), h.address, true) : ''}${h.lan ? addr(t('Same Wi-Fi'), h.lan, false) : ''}</div>
-      <div class="host-players">${players.length ? players.map(p => {
-        const me = S.account && p.toLowerCase() === String(S.account.username).toLowerCase();
-        return `<span class="host-player ${me ? 'me' : ''}">${esc(p)}${me ? ` <span class="muted">(${esc(t('you'))})</span>` : `<button class="icon-btn" data-hkick="${esc(p)}" title="${esc(t('Kick'))}">${icon('x')}</button>`}</span>`;
-      }).join('') : `<span class="muted small">${esc(t('Nobody is online yet.'))}</span>`}</div>
-      ${notes.map(n => `<div class="host-note ${n[0] === 'alert' ? 'warn' : ''}">${icon(n[0])}<span>${esc(n[1])}</span></div>`).join('')}`;
+    root.innerHTML = `<div class="host-panel">${head}
+      ${h.restartNeeded ? `<div class="host-note warn hv-restart">${icon('alert')}<span>${esc(t('Some changes (plugins, max. players) only apply after a restart.'))}</span><button class="btn small" data-hrestart>${icon('refresh')}${esc(t('Restart now'))}</button></div>` : ''}
+      <div class="host-addrs">${h.address && h.network !== 'reconnecting' ? addr(t('For friends (internet)'), h.address, true) : `<div class="host-addr"><span class="lbl">${esc(t('For friends (internet)'))}</span><div class="val muted small"><span class="spinner"></span>${esc(t('Connecting…'))}</div></div>`}${h.lan ? addr(t('Same Wi-Fi'), h.lan, false) : ''}</div>
+      ${notes.map(n => `<div class="host-note ${n[0] === 'alert' ? 'warn' : ''}">${icon(n[0])}<span>${esc(n[1])}</span></div>`).join('')}</div>`;
   }
-  $('#hostPanel').addEventListener('click', async e => {
-    if (e.target.closest('#hostStop')) {
+
+  $('#hvTop').addEventListener('click', async e => {
+    const w = e.target.closest('[data-hw]');
+    if (w) { HV.world = w.dataset.hw; renderHostTop(); loadHostSettings(); return; }
+    if (e.target.closest('#hvGo')) { startHosting(); return; }
+    if (e.target.closest('#hvStop')) {
       if (!(await confirmDialog({ title: t('Stop the server?'), text: t('The world is saved and everyone on it — you too — is disconnected.'), ok: t('Stop server'), danger: true }))) return;
       call(api.hosting.stop()).catch(fail);
       return;
     }
-    const cp = e.target.closest('[data-hcopy]');
-    if (cp) { try { await navigator.clipboard.writeText(cp.dataset.hcopy); toast('success', t('Address copied.')); } catch (err) { fail(err); } return; }
-    const inv = e.target.closest('[data-hinvite]');
-    if (inv) {
-      try { await navigator.clipboard.writeText(`${inviteLink(inv.dataset.hinvite)}&v=${encodeURIComponent(S.hosting.version)}`); toast('success', t('Invite link copied — paste it in Discord.')); }
-      catch (err) { fail(err); }
+    if (e.target.closest('#hvRestart') || e.target.closest('[data-hrestart]')) {
+      if (!(await confirmDialog({ title: t('Restart the server?'), text: t('Everyone is disconnected for a moment. Join again from Multiplayer once it is back.'), ok: t('Restart') }))) return;
+      call(api.hosting.restart()).catch(fail);
       return;
     }
-    if (e.target.closest('[data-hclaim]')) { if (S.hosting.playitClaim) api.openExternal(S.hosting.playitClaim); return; }
-    if (e.target.closest('[data-hplugins]')) { call(api.hosting.openPlugins(S.hosting.version)).catch(fail); return; }
-    const k = e.target.closest('[data-hkick]');
-    if (k) call(api.hosting.kick(k.dataset.hkick)).catch(fail);
+    const cp = e.target.closest('[data-hcopy]');
+    if (cp) { try { await navigator.clipboard.writeText(cp.dataset.hcopy); toast('success', t('Address copied.')); } catch (_) {} return; }
+    const inv = e.target.closest('[data-hinvite]');
+    if (inv) {
+      try { await navigator.clipboard.writeText(`${inviteLink(inv.dataset.hinvite)}&v=${encodeURIComponent(S.hosting.version)}`); toast('success', t('Invite link copied — paste it in Discord.')); } catch (_) {}
+    }
   });
-  $('#hostStart').onclick = async () => {
-    if (hostingOn()) return;
+  $('#hvTop').addEventListener('change', e => {
+    if (e.target.id !== 'hvEula') return;
+    $('#hvGo').disabled = !e.target.checked || !HV.world;
+  });
+
+  async function startHosting() {
+    if (hostingOn() || !HV.world) return;
     if (!S.account) { toast('error', t('Sign in with your Microsoft account first.')); return; }
     if (mySession() || isBusy()) { toast('error', t('Close Minecraft first.')); return; }
-    const v = contentVersion();
-    if (!S.worlds.length) { try { S.worlds = (await call(api.worlds.list(v))).worlds; } catch (e) { fail(e); return; } }
-    const worlds = S.worlds.filter(w => !w.missing);
-    if (!worlds.length) { toast('error', t('Create a world in singleplayer first, then you can host it.')); return; }
-    let copies = {};
-    try { copies = (await call(api.hosting.info(v))).copies || {}; } catch (_) {}
-    const { el, close } = openModal(`<h3>${icon('users')}${esc(t('Host a world'))}</h3>
-      <p>${esc(t('Pick a world from Minecraft {0}. Up to {1} friends can join you. When you close Minecraft, the server turns off.', v, 4))}</p>
-      <div class="host-pick">${worlds.map((w, i) => `<label><input type="radio" name="hw" value="${esc(w.folder)}" ${i === 0 ? 'checked' : ''} />
-        ${w.icon ? `<img src="${esc(w.icon)}" alt="" />` : `<span class="wi">${icon('map')}</span>`}
-        <span class="wn"><strong>${esc(w.name)}</strong><span>${esc(t('Played {0}', timeAgo(w.lastPlayed).toLowerCase()))} · ${fmtSize(w.size)}</span></span></label>`).join('')}</div>
-      <div class="host-mode">
-        <label><input type="radio" name="hmode" value="plain" checked /><span><strong>${esc(t('Without plugins'))}</strong><span>${esc(t('Your real world. Friends join through e4mc, nothing to set up.'))}</span></span></label>
-        <label><input type="radio" name="hmode" value="plugins" /><span><strong>${esc(t('With plugins (Paper)'))}</strong><span>${esc(t('Put Paper plugins into the plugins folder. Runs on a server copy of the world; friends join through playit.gg (confirm a link once).'))}</span></span></label>
-      </div>
-      <div class="host-plugins" hidden>
-        <button class="btn small ghost" data-plugins>${icon('folder')}${esc(t('Open plugins folder'))}</button>
-        <label class="host-eula" data-freshwrap hidden><label class="switch"><input type="checkbox" id="hostFresh" /><i></i></label><span data-freshtext></span></label>
-      </div>
-      <div class="host-eula"><label class="switch"><input type="checkbox" id="hostEula" /><i></i></label><span>${esc(t('I accept the'))} <a id="hostEulaLink">${esc(t('Minecraft EULA'))}</a></span></div>
-      <p class="muted small">${esc(t('A backup of the world is made first.'))}</p>
-      <div class="row-btns"><button class="btn ghost" data-r="0">${esc(t('Cancel'))}</button><button class="btn" data-r="1" disabled>${icon('play')}${esc(t('Start hosting'))}</button></div>`);
-    const go = $('[data-r="1"]', el);
-    $('#hostEula', el).onchange = e => { go.disabled = !e.target.checked; };
-    $('#hostEulaLink', el).onclick = e => { e.preventDefault(); api.openExternal('https://aka.ms/MinecraftEULA'); };
-    $('[data-r="0"]', el).onclick = close;
-    // Mit Plugins: Plugins-Ordner und "Server-Kopie neu erstellen" (nur wenn es schon eine gibt)
-    const pluginsOn = () => $('input[name="hmode"]:checked', el)?.value === 'plugins';
-    const refreshMode = () => {
-      const folder = $('input[name="hw"]:checked', el)?.value;
-      $('.host-plugins', el).hidden = !pluginsOn();
-      const made = folder && copies[folder];
-      $('[data-freshwrap]', el).hidden = !made;
-      if (made) $('[data-freshtext]', el).textContent = t('Make a new server copy from singleplayer (the copy from {0} is replaced)', fmtDate(made));
-    };
-    el.addEventListener('change', e => { if (e.target.name === 'hmode' || e.target.name === 'hw') refreshMode(); });
-    $('[data-plugins]', el).onclick = () => call(api.hosting.openPlugins(v)).catch(fail);
-    go.onclick = async () => {
-      const folder = $('input[name="hw"]:checked', el)?.value;
-      if (!folder) return;
-      const plugins = pluginsOn();
-      const freshCopy = plugins && $('#hostFresh', el).checked;
-      close();
-      S.hosting = { status: 'starting', version: v, world: folder, worldName: worlds.find(w => w.folder === folder)?.name, plugins, step: 'Backing up your world', players: [] };
-      renderHosting();
-      try { await call(api.hosting.start(v, folder, { acceptEula: true, plugins, freshCopy })); }
-      catch (err) { toast('error', err.message, [{ label: t('Open console'), run: () => setConsole(true) }]); }
-    };
+    if (!HV.eula) {
+      if (!$('#hvEula')?.checked) return;
+      HV.eula = true;
+      try { localStorage.setItem('vortex.hostEula', '1'); } catch (_) {}
+    }
+    const v = hvVersion();
+    const folder = HV.world;
+    S.hosting = { status: 'starting', version: v, world: folder, worldName: HV.worlds.find(w => w.folder === folder)?.name, step: 'Backing up your world', players: [] };
+    HV.lines = [];
+    renderHosting();
+    renderHostConsole(true);
+    try { await call(api.hosting.start(v, folder, { acceptEula: true })); }
+    catch (err) { toast('error', err.message, [{ label: t('Show console'), run: () => { showPage('hosting'); $('[data-tabs="hosting"] [data-tab="console"]').click(); } }]); }
+  }
+
+  // --- Konsole -------------------------------------------------------------
+  const consoleLine = l => {
+    const d = document.createElement('div');
+    d.className = `cl ${l.level || 'info'}`;
+    d.textContent = l.line;
+    return d;
   };
+  function renderHostConsole(toBottom) {
+    const box = $('#hvConsole');
+    box.textContent = '';
+    if (!HV.lines.length) {
+      box.innerHTML = `<div class="hv-console-empty">${icon('terminal')}<span>${esc(hostingOn() ? t('Waiting for the server…') : t('Start the server to see its console here. You can type commands like in Minecraft — without the slash.'))}</span></div>`;
+    } else {
+      const frag = document.createDocumentFragment();
+      for (const l of HV.lines) frag.appendChild(consoleLine(l));
+      box.appendChild(frag);
+    }
+    if (toBottom) box.scrollTop = box.scrollHeight;
+    renderHostConsoleInput();
+  }
+  function renderHostConsoleInput() {
+    const on = S.hosting.status === 'running' || S.hosting.status === 'starting';
+    $('#hvCmd').disabled = !on;
+    $('#hvCmdSend').disabled = !on;
+    $('#hvQuick').innerHTML = on ? QUICK.map(q => `<button class="chip" data-q="${esc(q)}">/${esc(q)}</button>`).join('') : '';
+  }
+  api.on.hostingConsole(batch => {
+    if (!Array.isArray(batch) || !batch.length) return;
+    HV.lines.push(...batch);
+    const over = HV.lines.length - 1500;
+    if (over > 0) HV.lines.splice(0, over);
+    if (S.page !== 'hosting') return;
+    const box = $('#hvConsole');
+    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+    if (box.querySelector('.hv-console-empty')) box.textContent = '';
+    const frag = document.createDocumentFragment();
+    for (const l of batch) frag.appendChild(consoleLine(l));
+    box.appendChild(frag);
+    while (box.childElementCount > 1500) box.firstElementChild.remove();
+    if (atBottom) box.scrollTop = box.scrollHeight;
+  });
+  async function sendHostCommand(text) {
+    const cmd = String(text || '').trim();
+    if (!cmd) return;
+    if (HV.hist[HV.hist.length - 1] !== cmd) HV.hist.push(cmd);
+    if (HV.hist.length > 50) HV.hist.shift();
+    HV.histPos = -1;
+    try { await call(api.hosting.command(cmd)); } catch (e) { fail(e); }
+    $('#hvConsole').scrollTop = $('#hvConsole').scrollHeight;
+  }
+  $('#hvCmdForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const inp = $('#hvCmd');
+    const v = inp.value;
+    inp.value = '';
+    sendHostCommand(v);
+  });
+  $('#hvCmd').addEventListener('keydown', e => {
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+    if (!HV.hist.length) return;
+    e.preventDefault();
+    if (HV.histPos < 0) HV.histPos = HV.hist.length;
+    HV.histPos = Math.max(0, Math.min(HV.hist.length, HV.histPos + (e.key === 'ArrowUp' ? -1 : 1)));
+    e.target.value = HV.hist[HV.histPos] || '';
+  });
+  $('#hvQuick').addEventListener('click', e => { const q = e.target.closest('[data-q]'); if (q) sendHostCommand(q.dataset.q); });
+
+  // --- Spieler -------------------------------------------------------------
+  async function renderHostPlayers() {
+    const root = $('#hvPlayers');
+    const h = S.hosting;
+    const players = h.players || [];
+    $('#hvPlayersCount').textContent = players.length;
+    if (h.status !== 'running') { root.innerHTML = emptyHtml('users', t('Nobody is online'), t('Players show up here while you are hosting. You can kick, ban, make them operator or change their game mode with one click.')); return; }
+    const gmSel = p => `<select class="select small" data-pgm title="${esc(t('Game mode'))}">${['', ...Object.keys(GAMEMODES)].map(g => `<option value="${g}">${esc(g ? t(GAMEMODES[g]) : t('Game mode…'))}</option>`).join('')}</select>`;
+    let html = players.length ? `<div class="list">${players.map(p => `
+      <div class="item hv-player" data-p="${esc(p.name)}">
+        <div class="icon hv-avatar">${esc(p.name.slice(0, 1).toUpperCase())}</div>
+        <div class="item-body">
+          <div class="item-title"><strong>${esc(p.name)}</strong>${p.host ? `<span class="src vortex">${esc(t('YOU'))}</span>` : ''}${p.op ? `<span class="src bundled">OP</span>` : ''}</div>
+          <div class="item-desc">${esc(p.host ? t('Host — always operator') : p.op ? t('Operator: can use commands') : t('Player'))}</div>
+        </div>
+        <div class="item-actions">
+          ${gmSel(p)}
+          ${p.host ? '' : `<button class="btn small ghost" data-pop="${p.op ? 'deop' : 'op'}">${icon('shield')}${esc(p.op ? t('Remove OP') : t('Make OP'))}</button>
+          <button class="btn small ghost" data-pact="kick">${icon('x')}${esc(t('Kick'))}</button>
+          <button class="btn small danger" data-pact="ban">${icon('ban')}${esc(t('Ban'))}</button>`}
+        </div>
+      </div>`).join('')}</div>` : emptyHtml('users', t('Nobody is online yet.'), t('Send your friends the address above — or the invite link.'));
+    root.innerHTML = html;
+    try { HV.banned = (await call(api.hosting.banned())).banned || []; } catch (_) { HV.banned = []; }
+    if (S.hosting.status !== 'running' || S.page !== 'hosting') return;
+    const extra = [];
+    if (HV.settings?.whitelist) extra.push(`<form class="hv-wl" id="hvWlForm"><span class="muted small">${esc(t('Whitelist is on — only listed players can join.'))}</span><input id="hvWlName" placeholder="${esc(t('Player name'))}" maxlength="16" spellcheck="false" /><button class="btn small" type="submit">${icon('user-plus')}${esc(t('Allow'))}</button></form>`);
+    if (HV.banned.length) extra.push(`<h4 class="hv-sub">${esc(t('Banned'))}</h4><div class="host-players">${HV.banned.map(n => `<span class="host-player">${esc(n)}<button class="icon-btn" data-pardon="${esc(n)}" title="${esc(t('Unban'))}">${icon('x')}</button></span>`).join('')}</div>`);
+    if (extra.length) root.insertAdjacentHTML('beforeend', extra.join(''));
+  }
+  const hostPlayer = (name, action) => call(api.hosting.player(name, action)).catch(fail);
+  $('#hvPlayers').addEventListener('click', async e => {
+    const pd = e.target.closest('[data-pardon]');
+    if (pd) { await hostPlayer(pd.dataset.pardon, 'pardon'); setTimeout(renderHostPlayers, 500); return; }
+    const row = e.target.closest('[data-p]');
+    if (!row) return;
+    const name = row.dataset.p;
+    const op = e.target.closest('[data-pop]');
+    if (op) { hostPlayer(name, op.dataset.pop); return; }
+    const a = e.target.closest('[data-pact]');
+    if (!a) return;
+    if (a.dataset.pact === 'ban' && !(await confirmDialog({ title: t('Ban {0}?', name), text: t('{0} is kicked and cannot join this server again until you unban them.', name), ok: t('Ban'), danger: true }))) return;
+    await hostPlayer(name, a.dataset.pact);
+    if (a.dataset.pact === 'ban') setTimeout(renderHostPlayers, 600);
+  });
+  $('#hvPlayers').addEventListener('change', e => {
+    const s = e.target.closest('[data-pgm]');
+    if (!s || !s.value) return;
+    hostPlayer(s.closest('[data-p]').dataset.p, `gamemode:${s.value}`);
+    s.value = '';
+  });
+  $('#hvPlayers').addEventListener('submit', e => {
+    if (e.target.id !== 'hvWlForm') return;
+    e.preventDefault();
+    const n = $('#hvWlName').value.trim();
+    if (!/^[A-Za-z0-9_]{1,16}$/.test(n)) { toast('error', t('Invalid player name.')); return; }
+    $('#hvWlName').value = '';
+    hostPlayer(n, 'whitelist').then(() => toast('success', t('{0} may join now.', n)));
+  });
+
+  // --- Einstellungen -------------------------------------------------------
+  async function loadHostSettings() {
+    const v = hvVersion();
+    const w = hvWorld();
+    if (!w) { HV.settings = null; renderHostSettings(); return; }
+    if (hostingOn() && S.hosting.settings) HV.settings = S.hosting.settings;
+    else { try { HV.settings = (await call(api.hosting.getSettings(v, w))).settings; } catch (_) { HV.settings = null; } }
+    renderHostSettings();
+  }
+  function renderHostSettings() {
+    const root = $('#hvSettings');
+    const s = HV.settings;
+    if (!s) { root.innerHTML = emptyHtml('sliders', t('No world selected'), t('Pick a world above.')); return; }
+    const name = hostingOn() ? (S.hosting.worldName || S.hosting.world) : (HV.worlds.find(x => x.folder === HV.world)?.name || HV.world);
+    const seg = (key, map) => `<div class="segmented" data-hset="${key}">${Object.entries(map).map(([k, l]) => `<button data-value="${k}" class="${s[key] === k ? 'active' : ''}">${esc(t(l))}</button>`).join('')}</div>`;
+    const sw = key => `<label class="switch"><input type="checkbox" data-hset="${key}" ${s[key] ? 'checked' : ''} /><i></i></label>`;
+    const row = (title, text, ctl) => `<div class="set-row"><div><strong>${esc(title)}</strong><p>${esc(text)}</p></div><div class="set-ctl">${ctl}</div></div>`;
+    root.innerHTML = `<section class="card set-card">
+      <h3>${icon('sliders')}${esc(t('Server settings for “{0}”', name))}</h3>
+      ${row(t('Game mode'), t('For friends who join. You keep your own game mode.'), seg('gamemode', GAMEMODES))}
+      ${row(t('Difficulty'), t('Applies to the whole world.'), seg('difficulty', DIFFICULTIES))}
+      ${row(t('PvP'), t('Players can hurt each other.'), sw('pvp'))}
+      ${row(t('Cheats for friends'), t('Friends become operators and can use commands like /gamemode or /tp. You always can.'), sw('cheats'))}
+      ${row(t('Whitelist'), t('Only players you allow can join. Players online right now are allowed automatically.'), sw('whitelist'))}
+      ${row(t('Max. players'), t('Including you. Takes effect after a restart.'), `<input class="hv-num" type="number" min="2" max="50" data-hset="maxPlayers" value="${Number(s.maxPlayers) || 8}" />`)}
+      <p class="muted small hv-hint">${esc(hostingOn() ? t('Changes apply right away. You can also change them in Minecraft: Esc → Hosting Options.') : t('Saved for this world and used every time you host it.'))}</p>
+    </section>`;
+  }
+  async function saveHostSetting(patch) {
+    const v = hvVersion();
+    const w = hvWorld();
+    if (!w) return;
+    try {
+      HV.settings = (await call(api.hosting.setSettings(v, w, patch))).settings;
+      renderHostSettings();
+      if (patch.whitelist !== undefined && S.hosting.status === 'running') renderHostPlayers();
+    } catch (e) { fail(e); loadHostSettings(); }
+  }
+  $('#hvSettings').addEventListener('click', e => {
+    const b = e.target.closest('[data-hset] button[data-value]');
+    if (!b) return;
+    saveHostSetting({ [b.parentElement.dataset.hset]: b.dataset.value });
+  });
+  $('#hvSettings').addEventListener('change', e => {
+    const k = e.target.dataset.hset;
+    if (!k) return;
+    saveHostSetting({ [k]: e.target.type === 'checkbox' ? e.target.checked : Number(e.target.value) });
+  });
+
+  // --- Plugins -------------------------------------------------------------
+  async function loadHostPlugins() {
+    const v = hvVersion();
+    try { HV.plugins = (await call(api.plugins.list(v))).plugins || []; } catch (_) { HV.plugins = []; }
+    renderHostPlugins();
+  }
+  function renderHostPlugins() {
+    const v = hvVersion();
+    $('#hvPluginsCount').textContent = HV.plugins.length;
+    $('#hvPluginsInfo').textContent = t('Plugins apply to every world you host on Minecraft {0}. New or removed plugins take effect after a (re)start.', v);
+    $('#hvPluginList').innerHTML = HV.plugins.length ? HV.plugins.map(p => `
+      <div class="item" data-file="${esc(p.file)}">
+        <div class="icon">${p.iconUrl ? `<img src="${esc(p.iconUrl)}" alt="" loading="lazy" />` : icon('package')}</div>
+        <div class="item-body">
+          <div class="item-title"><strong>${esc(p.title)}</strong><span class="ver">${esc(p.version)}</span><span class="src ${p.projectId ? 'modrinth' : 'local'}">${esc(t(p.projectId ? 'MODRINTH' : 'LOCAL'))}</span></div>
+          <div class="item-desc">${esc(p.description || p.file)}</div>
+        </div>
+        <div class="item-actions"><button class="icon-btn" data-premove title="${esc(t('Remove'))}">${icon('trash')}</button></div>
+      </div>`).join('') : emptyHtml('package', t('No plugins yet'), t('Find plugins below — or put Paper/Bukkit .jar files into the folder.'));
+  }
+  async function runPluginSearch(reset) {
+    const d = HV.search;
+    const token = ++d.token;
+    if (reset) { d.page = 0; d.results = []; $('#hvPluginResults').innerHTML = skeletons(4); $('#hvPluginMore').hidden = true; }
+    try {
+      const r = await call(api.plugins.search(d.query, hvVersion(), d.page, d.query ? (d.sort === 'downloads' ? 'relevance' : d.sort) : d.sort));
+      if (token !== d.token) return;
+      d.results = reset ? r.results : d.results.concat(r.results);
+      d.hasNext = r.hasNext;
+      d.loaded = true;
+    } catch (e) {
+      if (token !== d.token) return;
+      $('#hvPluginResults').innerHTML = emptyHtml('alert', t('Modrinth could not be reached'), e.message);
+      return;
+    }
+    const root = $('#hvPluginResults');
+    if (!d.results.length) {
+      root.innerHTML = emptyHtml('search', t('No results'), d.query ? t('No plugin for Minecraft {0} matching “{1}”.', hvVersion(), d.query) : t('No plugins for Minecraft {0} yet.', hvVersion()));
+      $('#hvPluginMore').hidden = true;
+      return;
+    }
+    root.innerHTML = d.results.map(r => `
+      <article class="result" data-id="${esc(r.projectId)}">
+        <div class="icon">${r.iconUrl ? `<img src="${esc(r.iconUrl)}" alt="" loading="lazy" />` : icon('package')}</div>
+        <div class="result-body">
+          <strong>${esc(r.title)}</strong><span class="by">${esc(t('by {0}', r.author || t('unknown')))}</span>
+          <p>${esc(r.description)}</p>
+          <div class="result-foot">
+            <div class="meta"><span>${icon('download')}${fmtNum(r.downloads)}</span>${r.categories.slice(0, 2).map(c => `<span>${esc(c)}</span>`).join('')}</div>
+            <button class="icon-btn" title="${esc(t('Open on Modrinth'))}" data-external="https://modrinth.com/plugin/${esc(r.slug)}">${icon('external')}</button>
+            ${r.installed ? `<button class="btn small done">${icon('check')}${esc(t('Installed'))}</button>` : `<button class="btn small" data-pinstall>${icon('download')}${esc(t('Install'))}</button>`}
+          </div>
+        </div>
+      </article>`).join('');
+    $('#hvPluginMore').hidden = !d.hasNext;
+  }
+  $('#hvPluginQuery').addEventListener('input', debounce(e => { HV.search.query = e.target.value.trim(); runPluginSearch(true); }, 400));
+  $('#hvPluginSort').onchange = e => { HV.search.sort = e.target.value; runPluginSearch(true); };
+  $('#hvPluginMore').onclick = e => busy(e.currentTarget, async () => { HV.search.page += 1; await runPluginSearch(false); });
+  $('#hvPluginsFolder').onclick = () => call(api.plugins.openFolder(hvVersion())).catch(fail);
+  $('#hvPluginResults').addEventListener('click', async e => {
+    const b = e.target.closest('[data-pinstall]');
+    if (!b) return;
+    const r = HV.search.results.find(x => x.projectId === b.closest('.result').dataset.id);
+    if (!r) return;
+    await busy(b, async () => {
+      await call(api.plugins.install(r.projectId, hvVersion()));
+      r.installed = true;
+      toast('success', S.hosting.status === 'running' ? t('{0} installed. Restart the server to load it.', r.title) : t('{0} installed. It loads the next time you host.', r.title));
+      b.outerHTML = `<button class="btn small done">${icon('check')}${esc(t('Installed'))}</button>`;
+      loadHostPlugins();
+    });
+  });
+  $('#hvPluginList').addEventListener('click', async e => {
+    const b = e.target.closest('[data-premove]');
+    if (!b) return;
+    const file = b.closest('[data-file]').dataset.file;
+    const p = HV.plugins.find(x => x.file === file);
+    if (!(await confirmDialog({ title: t('Remove {0}?', p?.title || file), text: t('The plugin file is deleted. Its settings folder stays, in case you install it again.'), ok: t('Remove'), danger: true }))) return;
+    try { await call(api.plugins.remove(hvVersion(), file)); } catch (err) { fail(err); }
+    const hit = HV.search.results.find(x => x.projectId === p?.projectId);
+    if (hit) { hit.installed = false; }
+    loadHostPlugins();
+  });
+  $('[data-tabs="hosting"]').addEventListener('click', e => {
+    const tab = e.target.closest('.tab');
+    if (!tab) return;
+    if (tab.dataset.tab === 'plugins' && !HV.search.loaded) runPluginSearch(true);
+    if (tab.dataset.tab === 'console') setTimeout(() => { const b = $('#hvConsole'); b.scrollTop = b.scrollHeight; if (!$('#hvCmd').disabled) $('#hvCmd').focus(); }, 30);
+    if (tab.dataset.tab === 'players') renderHostPlayers();
+  });
+
   api.on.hosting(h => {
     const was = S.hosting.status;
     S.hosting = h && h.status ? h : { status: 'off' };
     renderHosting();
-    if (was !== 'off' && S.hosting.status === 'off' && S.page === 'worlds') loadWorlds();
+    if (was !== 'off' && S.hosting.status === 'off') {
+      if (S.page === 'worlds') loadWorlds();
+      if (S.page === 'hosting') { renderHostConsoleInput(); loadHostSettings(); }
+    }
+    if (was === 'off' && S.hosting.status !== 'off' && S.page === 'hosting') { loadHostSettings(); loadHostPlugins(); }
   });
   api.hosting.state().then(r => { if (r?.ok && r.state) { S.hosting = r.state; renderHosting(); } }).catch(() => {});
 

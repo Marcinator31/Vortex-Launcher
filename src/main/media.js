@@ -137,6 +137,7 @@ function backupPath(v, id) {
 async function restoreBackup(version, id) {
   const v = instances.requireVersion(version);
   const { folder, p } = backupPath(v, id);
+  if (require('./hosting').isHosted(v, folder)) throw new Error('You are hosting this world right now. Stop the server first.');
   const dst = path.join(savesRoot(v), folder);
   if (exists(dst)) {
     if (exists(path.join(dst, 'session.lock'))) {

@@ -52,6 +52,8 @@ const write = (socket, obj) => socket.write(Buffer.concat([Buffer.from(JSON.stri
  * @param {number} localPort  Port des Minecraft-Servers auf diesem Rechner
  * @param {{host?:string, port?:number, log?:Function}} opts
  * @returns {Promise<EventEmitter & {address:string, remotePort:number, close:Function}>}
+ *   opts.wunschPort: diesen oeffentlichen Port erbitten (gleiche Adresse wie
+ *   beim letzten Mal); ist er belegt, antwortet bore mit einem Fehler.
  *   Ereignisse: 'connection' (Anzahl), 'close' (Grund)
  */
 function open(localPort, opts = {}) {
@@ -98,7 +100,7 @@ function open(localPort, opts = {}) {
     control = net.connect({ host, port: controlPort });
     control.setKeepAlive(true, 15000);
     const timer = setTimeout(() => { fail(new Error(`${host} did not answer.`)); try { control.destroy(); } catch (_) {} }, 12000);
-    control.once('connect', () => write(control, { Hello: 0 }));
+    control.once('connect', () => write(control, { Hello: Number(opts.wunschPort) || 0 }));
     control.on('error', e => { clearTimeout(timer); fail(new Error(`${host}: ${e.message}`)); });
     control.on('close', () => { clearTimeout(timer); if (!fertig) fail(new Error(`${host} closed the connection.`)); else if (!closed) { closed = true; clearInterval(heartbeat); tunnel.emit('close', 'lost'); } });
     reader(control, msg => {

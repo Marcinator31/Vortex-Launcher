@@ -667,6 +667,8 @@
     'This file is too big (max 1 MB).': 'Diese Datei ist zu groß (max. 1 MB).', 'Line {0}: YAML does not allow tabs for indenting -- use spaces.': 'Zeile {0}: YAML erlaubt keine Tabs zum Einrücken – nimm Leerzeichen.',
     'This is not valid JSON: {0}': 'Das ist kein gültiges JSON: {0}',
     'The file was changed meanwhile (probably by the plugin). Reload it or save again to overwrite.': 'Die Datei wurde inzwischen geändert (wahrscheinlich vom Plugin). Lade sie neu oder speichere erneut zum Überschreiben.',
+    'Turned off {0}: it does not work together with {1} -- singleplayer worlds would not open.': '{0} ausgeschaltet: verträgt sich nicht mit {1} – Einzelspielerwelten würden sich nicht öffnen.',
+    '{0} and {1} do not work together. Remove {0}.': '{0} und {1} vertragen sich nicht. Entferne {0}.',
     'Starting the server': 'Server startet', 'Preparing the world': 'Welt wird vorbereitet',
     'Opening the port in your router': 'Port im Router wird freigegeben', 'Starting Minecraft': 'Minecraft startet', 'Saving the world': 'Welt wird gespeichert',
     '{0} joined your world.': '{0} ist deiner Welt beigetreten.', '{0} left your world.': '{0} hat deine Welt verlassen.',

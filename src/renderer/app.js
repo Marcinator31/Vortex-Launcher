@@ -1694,6 +1694,113 @@
     if (tab.dataset.tab === 'players') renderHostPlayers();
   });
 
+  // -----------------------------------------------------------------------
+  // Hosting -> Files: Plugin-Configs und Server-Dateien direkt bearbeiten
+  // -----------------------------------------------------------------------
+  const HF = { files: [], open: null, text: '', mtime: null, zu: new Set() };
+  const hfDirty = () => Boolean(HF.open) && $('#hvFileText').value !== HF.text;
+
+  async function loadHostFiles() {
+    try { HF.files = (await call(api.serverFiles.list(hvVersion()))).files || []; } catch (e) { HF.files = []; fail(e); }
+    renderHostFiles();
+  }
+
+  function renderHostFiles() {
+    const q = $('#hvFileQuery').value.trim().toLowerCase();
+    const gruppen = new Map();
+    for (const f of HF.files) {
+      if (q && !f.path.toLowerCase().includes(q)) continue;
+      if (!gruppen.has(f.group)) gruppen.set(f.group, []);
+      gruppen.get(f.group).push(f);
+    }
+    const root = $('#hvFileTree');
+    if (!HF.files.length) { root.innerHTML = emptyHtml('folder', t('No files yet'), t('Start the server once — the settings files of the server and its plugins appear here.')); return; }
+    if (!gruppen.size) { root.innerHTML = emptyHtml('search', t('Nothing found'), t('No file matches your filter.')); return; }
+    root.innerHTML = [...gruppen].map(([g, liste]) => {
+      const zu = HF.zu.has(g) && !q;
+      return `<div class="hv-group ${zu ? 'closed' : ''}">
+        <button class="hv-group-head" data-fgroup="${esc(g)}">${icon('chevron')}<strong>${esc(g === 'Server' ? t('Server') : g)}</strong><span class="muted small">${liste.length}</span></button>
+        ${zu ? '' : liste.map(f => {
+          const name = g === 'Server' ? f.path : f.path.split('/').slice(2).join('/');
+          return `<button class="hv-file ${HF.open === f.path ? 'active' : ''}" data-fpath="${esc(f.path)}" title="${esc(f.path)}">${icon('edit')}<span>${esc(name)}</span></button>`;
+        }).join('')}</div>`;
+    }).join('');
+  }
+
+  function renderHostEditor() {
+    const ta = $('#hvFileText');
+    const dirty = hfDirty();
+    $('#hvFileName').textContent = HF.open ? `${HF.open}${dirty ? ' •' : ''}` : t('Choose a file');
+    $('#hvFileInfo').textContent = HF.open ? (dirty ? t('Unsaved changes') : t('Saved')) : t('Plugin settings, server.properties, Paper settings …');
+    $('#hvFileSave').disabled = !dirty;
+    $('#hvFileRevert').disabled = !dirty;
+    $('#hvFileSaveRestart').disabled = !HF.open || !hostingOn() || S.hosting.status !== 'running';
+    ta.disabled = !HF.open;
+    // Zeilennummern
+    const n = HF.open ? ta.value.split('\n').length : 0;
+    let nr = '';
+    for (let i = 1; i <= n; i++) nr += `${i}\n`;
+    $('#hvFileLines').textContent = nr;
+  }
+
+  async function openHostFile(rel) {
+    if (rel === HF.open) return;
+    if (hfDirty() && !(await confirmDialog({ title: t('Discard changes?'), text: t('Your changes to {0} are not saved.', HF.open), ok: t('Discard'), danger: true }))) return;
+    try {
+      const r = await call(api.serverFiles.read(hvVersion(), rel));
+      HF.open = rel; HF.text = r.text; HF.mtime = r.mtime;
+      $('#hvFileText').value = r.text;
+      $('#hvFileText').scrollTop = 0;
+    } catch (e) { fail(e); }
+    renderHostFiles();
+    renderHostEditor();
+  }
+
+  async function saveHostFile(neustart, force = false) {
+    if (!HF.open) return;
+    const text = $('#hvFileText').value;
+    try {
+      const r = await call(api.serverFiles.write(hvVersion(), HF.open, text, { mtime: HF.mtime, force }));
+      HF.text = text; HF.mtime = r.mtime;
+      toast('success', neustart ? t('Saved — the server restarts.') : t('Saved. Changes take effect after a restart.'));
+      if (neustart && hostingOn()) call(api.hosting.restart()).catch(fail);
+    } catch (e) {
+      if (/changed meanwhile|inzwischen/i.test(e.message)
+        && await confirmDialog({ title: t('The file was changed meanwhile'), text: t('The plugin changed this file after you opened it. Overwrite it with your version?'), ok: t('Overwrite'), danger: true })) {
+        return saveHostFile(neustart, true);
+      }
+      fail(e);
+    }
+    renderHostEditor();
+    loadHostFiles();
+  }
+
+  $('#hvFileTree').addEventListener('click', e => {
+    const g = e.target.closest('[data-fgroup]');
+    if (g) { HF.zu.has(g.dataset.fgroup) ? HF.zu.delete(g.dataset.fgroup) : HF.zu.add(g.dataset.fgroup); renderHostFiles(); return; }
+    const f = e.target.closest('[data-fpath]');
+    if (f) openHostFile(f.dataset.fpath);
+  });
+  $('#hvFileQuery').addEventListener('input', debounce(renderHostFiles, 120));
+  $('#hvFileText').addEventListener('input', renderHostEditor);
+  $('#hvFileText').addEventListener('scroll', e => { $('#hvFileLines').scrollTop = e.target.scrollTop; });
+  $('#hvFileText').addEventListener('keydown', e => {
+    // Strg+S speichert, Tab ruckt mit zwei Leerzeichen ein (YAML erlaubt keine Tabs)
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); if (hfDirty()) saveHostFile(false); return; }
+    if (e.key === 'Tab' && !e.shiftKey) {
+      e.preventDefault();
+      const ta = e.target, a = ta.selectionStart;
+      ta.setRangeText('  ', a, ta.selectionEnd, 'end');
+      renderHostEditor();
+    }
+  });
+  $('#hvFileSave').onclick = () => saveHostFile(false);
+  $('#hvFileSaveRestart').onclick = () => saveHostFile(true);
+  $('#hvFileRevert').onclick = () => { $('#hvFileText').value = HF.text; renderHostEditor(); };
+  $('[data-tabs="hosting"]').addEventListener('click', e => {
+    if (e.target.closest('.tab')?.dataset.tab === 'files') { loadHostFiles(); renderHostEditor(); }
+  });
+
   api.on.hosting(h => {
     const was = S.hosting.status;
     S.hosting = h && h.status ? h : { status: 'off' };

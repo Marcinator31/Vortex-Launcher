@@ -477,6 +477,10 @@ function registerIpc() {
   handle('plugins:install', (id, v) => plugins.install(id, v).then(r => { hosting.pluginsChanged(v); return r; }));
   handle('plugins:list', v => plugins.list(v));
   handle('plugins:remove', (v, file) => { const r = plugins.remove(v, file); hosting.pluginsChanged(v); return r; });
+  // Dateien des Servers (Hosting -> Files): Plugin-Configs, server.properties ...
+  handle('serverfiles:list', v => require('./serverfiles').list(v));
+  handle('serverfiles:read', (v, rel) => require('./serverfiles').read(v, rel));
+  handle('serverfiles:write', (v, rel, text, opts) => require('./serverfiles').write(v, rel, text, opts && typeof opts === 'object' ? { mtime: opts.mtime, force: Boolean(opts.force) } : {}));
   handle('plugins:openFolder', async v => { const err = await shell.openPath(plugins.pluginsDir(v)); if (err) throw new Error(err); return {}; });
 
   // Screenshots

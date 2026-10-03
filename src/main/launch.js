@@ -243,6 +243,7 @@ async function start({ version, serverId = null, address = null, safe = false, h
       const pf = await preflight.run(v, (id, ver) => modrinth.installMod(id, ver));
       if (pf.installed.length) notify('success', `Missing mods installed: ${pf.installed.join(', ')}`);
       if (pf.disabled.length) notify('info', `Installed twice, older copy disabled: ${pf.disabled.join(', ')}`);
+      for (const c of pf.conflicts || []) notify('info', `Turned off ${c.aus}: it does not work together with ${c.mit} -- singleplayer worlds would not open.`);
       for (const w of pf.warnings.slice(0, 3)) notify('error', w);
     } catch (e) { log(`Mod check skipped: ${e.message}`, 'warn'); }
 

@@ -10,6 +10,8 @@
  *     -> automatisch von Modrinth installieren (gleiche MC-Version, Fabric).
  *  2. DOPPELT: dieselbe Mod-ID in zwei Jars (Fabric bricht dann ab)
  *     -> die aeltere wird deaktiviert (nicht geloescht).
+ *  4. BEKANNT KAPUTT: Paare, die zusammen das Spiel kaputt machen, ohne dass
+ *     eine Mod das erklaert (KAPUTT unten) -> die erste wird deaktiviert.
  *  3. UNVERTRAEGLICH: eine Mod erklaert "breaks" gegen eine andere, die
  *     installiert ist -> Warnung (automatisch abschalten waere zu frech:
  *     vielleicht will man gerade die eine statt der anderen).
@@ -33,6 +35,18 @@ const BUILTIN = new Set(['minecraft', 'java', 'fabricloader', 'fabric-loader', '
 const ALIAS = { fabric: 'fabric-api' };
 
 const clean = v => String(v || '').split('+')[0];
+
+/**
+ * Bekannte Paare, die zusammen nicht gehen: { aus, mit } -- ist beides an,
+ * wird "aus" deaktiviert (umbenannt in .disabled, nichts geloescht).
+ *
+ * e4mc + Krypton: Einzelspielerwelten oeffnen sich nicht mehr -- die Welt
+ * startet und schliesst sofort wieder (beide aendern den Login,
+ * github.com/vgskye/e4mc-minecraft-architectury/issues/298 und /307).
+ */
+const KAPUTT = [
+  { aus: 'e4mc', mit: 'krypton' }
+];
 
 /**
  * Deckt eine "breaks"-Bedingung jede Version ab? Nur dann warnen wir --
@@ -70,6 +84,19 @@ async function run(version, install) {
     }
   }
   if (result.disabled.length) mods = instances.modsWithIds(v).filter(m => m.enabled && m.id);
+
+  // --- 4. Bekannt kaputte Paare -----------------------------------------------
+  result.conflicts = [];
+  for (const k of KAPUTT) {
+    const aus = mods.find(m => m.id === k.aus), mit = mods.find(m => m.id === k.mit);
+    if (!aus || !mit || managed.has(aus.file.toLowerCase())) continue;
+    try {
+      fs.renameSync(aus.path, `${aus.path}.disabled`);
+      result.conflicts.push({ aus: aus.name, mit: mit.name });
+      log(`Preflight: ${aus.file} disabled -- does not work together with ${mit.name}.`);
+    } catch (e) { result.warnings.push(`${aus.name} and ${mit.name} do not work together. Remove ${aus.name}.`); }
+  }
+  if (result.conflicts.length) mods = instances.modsWithIds(v).filter(m => m.enabled && m.id);
 
   // --- Was ist vorhanden? (IDs, "provides", eingebettete Jars) ----------------
   const have = new Set();

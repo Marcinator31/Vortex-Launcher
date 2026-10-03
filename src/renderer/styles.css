@@ -915,3 +915,27 @@ ul.plain { margin: 8px 0 12px; padding-left: 18px; line-height: 1.6; }
 .hv-wl input { height: 32px; border-radius: 9px; background: var(--inner); border: 1px solid var(--line-2); color: var(--text); padding: 0 10px; width: 180px; }
 .hv-live-chip { font: 700 10px var(--font); letter-spacing: .1em; color: var(--ok); background: rgba(34, 197, 94, .12); border-radius: 6px; padding: 3px 7px; }
 #page-hosting .set-card .segmented { flex-wrap: wrap; }
+
+/* Hosting -> Files: Dateibaum links, Editor rechts */
+.hv-files { display: grid; grid-template-columns: 260px 1fr; gap: 12px; min-height: 460px; }
+.hv-tree { background: var(--bg-2); border: 1px solid var(--line); border-radius: 13px; padding: 10px; display: flex; flex-direction: column; gap: 8px; max-height: 620px; overflow: auto; }
+.hv-tree .search { min-width: 0; }
+.hv-group-head { display: flex; align-items: center; gap: 6px; width: 100%; padding: 6px 6px; border-radius: 8px; color: var(--text); font-size: 12.5px; }
+.hv-group-head:hover { background: var(--bg-3); }
+.hv-group-head svg { width: 13px; height: 13px; transition: transform .15s; }
+.hv-group.closed .hv-group-head svg { transform: rotate(-90deg); }
+.hv-group-head strong { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hv-file { display: flex; align-items: center; gap: 7px; width: 100%; padding: 5px 8px 5px 24px; border-radius: 7px; color: var(--text-2); font: 12px var(--mono); text-align: left; }
+.hv-file svg { width: 12px; height: 12px; flex: none; color: var(--dim); }
+.hv-file span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hv-file:hover { background: var(--bg-3); color: var(--text); }
+.hv-file.active { background: #241a3d; color: #fff; }
+.hv-editor { display: flex; flex-direction: column; background: var(--bg-2); border: 1px solid var(--line); border-radius: 13px; overflow: hidden; min-width: 0; }
+.hv-ed-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.hv-ed-title { flex: 1; min-width: 0; display: grid; }
+.hv-ed-title strong { font: 600 13px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hv-ed-body { flex: 1; display: flex; min-height: 380px; background: var(--inner); }
+.hv-lines { margin: 0; padding: 10px 8px; min-width: 44px; text-align: right; color: #5f5878; font: 12.5px/1.55 var(--mono); overflow: hidden; user-select: none; border-right: 1px solid var(--line); }
+.hv-ed-body textarea { flex: 1; resize: none; border: 0; outline: none; background: transparent; color: var(--text); padding: 10px 12px; font: 12.5px/1.55 var(--mono); tab-size: 2; white-space: pre; overflow: auto; }
+.hv-ed-note { margin: 0; padding: 8px 12px; border-top: 1px solid var(--line); }
+@media (max-width: 900px) { .hv-files { grid-template-columns: 1fr; } .hv-tree { max-height: 240px; } }

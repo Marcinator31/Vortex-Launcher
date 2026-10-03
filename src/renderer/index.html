@@ -324,6 +324,7 @@
         <button class="tab" data-tab="players">Players <span class="count" id="hvPlayersCount">0</span></button>
         <button class="tab" data-tab="settings">Settings</button>
         <button class="tab" data-tab="plugins">Plugins <span class="count" id="hvPluginsCount">0</span></button>
+        <button class="tab" data-tab="files">Files</button>
       </div>
       <div class="tab-panel active" data-panel="hosting-console">
         <div class="hv-console" id="hvConsole"></div>
@@ -349,6 +350,27 @@
         </div>
         <div class="results" id="hvPluginResults"></div>
         <div class="more"><button class="btn ghost" id="hvPluginMore" hidden>Load more</button></div>
+      </div>
+      <div class="tab-panel" data-panel="hosting-files">
+        <div class="hv-files">
+          <aside class="hv-tree">
+            <label class="search"><svg><use href="#i-search"/></svg><input id="hvFileQuery" placeholder="Filter files" autocomplete="off" spellcheck="false" /></label>
+            <div id="hvFileTree"></div>
+          </aside>
+          <div class="hv-editor">
+            <div class="hv-ed-head">
+              <div class="hv-ed-title"><strong id="hvFileName">Choose a file</strong><span class="muted small" id="hvFileInfo">Plugin settings, server.properties, Paper settings …</span></div>
+              <button class="btn ghost small" id="hvFileRevert" disabled><svg><use href="#i-history"/></svg>Revert</button>
+              <button class="btn small" id="hvFileSave" disabled><svg><use href="#i-save"/></svg>Save</button>
+              <button class="btn small ghost" id="hvFileSaveRestart" disabled><svg><use href="#i-refresh"/></svg>Save &amp; restart</button>
+            </div>
+            <div class="hv-ed-body">
+              <pre class="hv-lines" id="hvFileLines" aria-hidden="true"></pre>
+              <textarea id="hvFileText" spellcheck="false" wrap="off" disabled placeholder="Pick a file on the left to edit it."></textarea>
+            </div>
+            <p class="muted small hv-ed-note" id="hvFileNote">Changes take effect after a restart. Some plugins save their settings when the server stops — edit while the server is off, or use “Save &amp; restart”.</p>
+          </div>
+        </div>
       </div>
     </section>
 

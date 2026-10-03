@@ -91,6 +91,11 @@ contextBridge.exposeInMainWorld('vortex', {
     remove: (v, file) => call('plugins:remove', v, file),
     openFolder: v => call('plugins:openFolder', v)
   },
+  serverFiles: {
+    list: v => call('serverfiles:list', v),
+    read: (v, rel) => call('serverfiles:read', v, rel),
+    write: (v, rel, text, opts) => call('serverfiles:write', v, rel, text, opts || {})
+  },
   shots: {
     list: v => call('shots:list', v),
     thumb: (v, f) => call('shots:thumb', v, f),

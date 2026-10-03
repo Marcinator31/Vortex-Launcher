@@ -242,6 +242,19 @@ const rejects = async (p, re) => { try { await p; } catch (e) { assert.match(e.m
     await rejects(alice.req('cosmetics.image', { image: pngKopf(512, 256) }), /cannot upload/);
     assert.equal((await dave.req('cosmetics.reports')).reports.length, 0);
 
+    // --- Emotes: an andere im Spiel, nicht an Blockierte, hoechstens eins pro Sekunde
+    const bobSpiel = new Client(url, 'Bob', 'game'); await bobSpiel.connect(bob.me.token);
+    const carlSpiel = new Client(url, 'Carl', 'game'); await carlSpiel.connect(carl.me.token);
+    assert.equal((await alice.req('emote.play', { emote: 'wave' })).sent, true);
+    const em = await bobSpiel.wait('emote');
+    assert.deepEqual(em, { uuid: a.uuid, emote: 'wave' });
+    assert.equal((await alice.req('emote.play', { emote: 'dance' })).sent, false, 'rate limit');
+    await rejects(alice.req('emote.play', { emote: 'Bad Emote!' }), /Unknown emote/);
+    await sleep(100);
+    assert.equal(carlSpiel.events.some(e => e.ev === 'emote'), false, 'Carl blocked Alice');
+    assert.equal(bob.events.some(e => e.ev === 'emote'), false, 'only game connections');
+    bobSpiel.close(); carlSpiel.close();
+
     // Freund entfernen
     await alice.req('friend.remove', { uuid: bob.me.uuid });
     await sleep(50);

@@ -31,11 +31,16 @@ const SCHEMA = [
      id BIGINT PRIMARY KEY, conv TEXT NOT NULL, sender TEXT NOT NULL, body TEXT NOT NULL, created BIGINT NOT NULL,
      edited BIGINT NOT NULL DEFAULT 0, deleted INTEGER NOT NULL DEFAULT 0, reply_to BIGINT NOT NULL DEFAULT 0,
      kind TEXT NOT NULL DEFAULT 'text', extra TEXT NOT NULL DEFAULT '')`,
-  `CREATE INDEX IF NOT EXISTS messages_conv ON messages (conv, id)`
+  `CREATE INDEX IF NOT EXISTS messages_conv ON messages (conv, id)`,
+  // Cosmetics (Cape, Hut, Partikel) und eigenes Cape-Bild (JPEG/PNG, Base64)
+  `CREATE TABLE IF NOT EXISTS cosmetics (
+     uuid TEXT PRIMARY KEY, data TEXT NOT NULL DEFAULT '{}', image TEXT NOT NULL DEFAULT '', image_hash TEXT NOT NULL DEFAULT '',
+     image_banned INTEGER NOT NULL DEFAULT 0, updated BIGINT NOT NULL DEFAULT 0)`,
+  `CREATE TABLE IF NOT EXISTS cosmetic_reports (reporter TEXT NOT NULL, target TEXT NOT NULL, image_hash TEXT NOT NULL DEFAULT '', created BIGINT NOT NULL, PRIMARY KEY (reporter, target))`
 ];
 
 const NUMERIC = new Set(['created', 'last_seen', 'since', 'favorite', 'muted', 'expires', 'last_msg', 'joined',
-  'last_read', 'id', 'edited', 'deleted', 'reply_to', 'n']);
+  'last_read', 'id', 'edited', 'deleted', 'reply_to', 'n', 'updated', 'image_banned']);
 
 /** Postgres liefert BIGINT als Text -- hier wieder Zahlen daraus machen. */
 function fixRow(row) {

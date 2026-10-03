@@ -20,6 +20,7 @@
  *   DATABASE_URL    Postgres (empfohlen bei Render & Co.), sonst SQLite in DATA_DIR
  *   DATA_DIR        Ordner fuer die SQLite-Datei (Standard ./data)
  *   BANNED          Komma-Liste gesperrter Namen/UUIDs
+ *   COSMETIC_ADMINS Komma-Liste von Minecraft-Namen, die Cape-Bilder entfernen/sperren duerfen
  */
 const http = require('http');
 const crypto = require('crypto');
@@ -46,7 +47,8 @@ function bucket(cap, perSec) {
 
 async function start({ env = process.env, port = Number(env.PORT) || 8080, hasJoined = mojang.hasJoined } = {}) {
   const db = await open(env);
-  const hub = new Hub(db, { log, banned: String(env.BANNED || '').split(',').map(s => s.trim()).filter(Boolean) });
+  const list = v => String(v || '').split(',').map(s => s.trim()).filter(Boolean);
+  const hub = new Hub(db, { log, banned: list(env.BANNED), cosmeticAdmins: list(env.COSMETIC_ADMINS) });
   await hub.load();
   const started = Date.now();
 

@@ -51,7 +51,7 @@ module.exports = Object.freeze({
    * Leer = Freunde-Funktion aus. Der Launcher gibt die Adresse beim Start
    * auch an den Vortex Client weiter (Freunde im Spiel).
    */
-  friendsServer: '',
+  friendsServer: 'wss://vortex-launcher.onrender.com/ws',
 
   website: 'https://vortex-client.onrender.com',
   officialServer: { name: 'VortexPvP', address: 'mc.vortexpvp.eu' }

@@ -57,6 +57,12 @@ Module._load = function (req, parent) {
 (async () => {
   const src = path.resolve('src', 'main');
   const core = require(path.join(src, 'core'));
+  // Alle Meldungen (auch die Ausgabe des Spiels) mitschreiben -- VOR dem Laden
+  // der anderen Module, die "log" beim Laden uebernehmen.
+  const zeilen = [];
+  const logDatei = path.join(OUT, `launcher-${V}.log`);
+  const origLog = core.log;
+  core.log = (m, l) => { const t = `[${l || 'info'}] ${m}`; zeilen.push(String(m)); fs.appendFileSync(logDatei, t + '\n'); if (l !== 'game') console.log(t); };
   const settings = require(path.join(src, 'settings'));
   const instances = require(path.join(src, 'instances'));
   const launch = require(path.join(src, 'launch'));
@@ -80,12 +86,6 @@ Module._load = function (req, parent) {
     pruefe('Vortex-Jar in den Mods-Ordner', r.added.length === 1, r.added.join(', ') || r.skipped.join(', '));
   }
 
-  // Ausgabe des Spiels mitlesen
-  const zeilen = [];
-  const origLog = core.log;
-  const logDatei = path.join(OUT, `game-${V}.log`);
-  core.log = (m, l) => { if (l === 'game' || l === 'error') { zeilen.push(String(m)); fs.appendFileSync(logDatei, m + '\n'); } else console.log(`[${l || 'log'}] ${m}`); };
-  // launch.js hat log schon beim Laden importiert -- daher zusaetzlich die Log-Datei des Launchers auswerten
   let sitzung;
   try {
     const t0 = Date.now();
@@ -116,7 +116,7 @@ Module._load = function (req, parent) {
     execFileSync('import', ['-window', 'root', path.join(OUT, `screen-${V}.png`)], { env: process.env });
     say(`Bild: screen-${V}.png`);
   } catch (e) { say(`Kein Bild: ${e.message}`); }
-  fs.copyFileSync(path.join(core.paths.instanceRoot(V), 'logs', 'latest.log'), path.join(OUT, `latest-${V}.log`));
+  try { fs.copyFileSync(path.join(core.paths.instanceRoot(V), 'logs', 'latest.log'), path.join(OUT, `latest-${V}.log`)); } catch (_) {}
   try { launch.stop(sitzung.id || sitzung); } catch (_) {}
   try { execFileSync('pkill', ['-f', 'net.fabricmc.loader']); } catch (_) {}
   core.log = origLog;

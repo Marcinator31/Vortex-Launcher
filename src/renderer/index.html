@@ -159,6 +159,14 @@
             </button>
             <div class="vp-menu" id="vpMenu" hidden></div>
           </div>
+          <div class="version-picker profile-picker" id="profilePicker" hidden>
+            <button class="vp-button pp-button" id="ppButton" type="button">
+              <span class="vp-label">MOD PROFILE</span>
+              <span class="vp-value pp-value" id="ppValue">Standard</span>
+              <svg class="vp-chev"><use href="#i-chevron"/></svg>
+            </button>
+            <div class="vp-menu" id="ppMenu" hidden></div>
+          </div>
           <button class="play" id="playBtn" type="button">
             <span class="play-fill" id="playFill"></span>
             <span class="play-inner">
@@ -215,6 +223,7 @@
         <div><p class="eyebrow">CONTENT</p><h2>Mods</h2><p class="muted">Add Fabric mods from Modrinth or your own .jar files.</p></div>
         <div class="head-tools"><div class="instance-chip" data-instance-chip></div></div>
       </div>
+      <div class="profile-bar" id="profileBar"></div>
       <div class="tabs" data-tabs="mods">
         <button class="tab active" data-tab="installed">Installed <span class="count" id="modsCount">0</span></button>
         <button class="tab" data-tab="discover">Discover</button>

@@ -386,6 +386,7 @@
     }
     renderPlay();
     renderVersionMenu();
+    renderProfilePicker();
     renderQuickServers();
     renderInstanceCard();
     renderNews();
@@ -822,7 +823,10 @@
       if (r.canceled) return;
       S.versions = r.versions;
       renderVersions(); renderVersionMenu();
-      toast('success', t('Modpack imported into Minecraft {0}: {1} files.', r.version, r.added), [{ label: t('Select'), run: () => selectVersion(r.version) }]);
+      if (r.profile) { delete S.profiles[r.version]; if (S.page === 'mods' && contentVersion() === r.version) loadMods(); }
+      toast('success', r.profile
+        ? t('Modpack “{0}” is now its own profile in Minecraft {1}: {2} files.', r.name || 'Modpack', r.version, r.added)
+        : t('Modpack imported into Minecraft {0}: {1} files.', r.version, r.added), [{ label: t('Select'), run: () => selectVersion(r.version) }]);
       if (r.failed?.length) toast('error', t('{0} files could not be downloaded.', r.failed.length));
     });
   }
@@ -942,9 +946,164 @@
   // -----------------------------------------------------------------------
   async function loadMods() {
     const v = contentVersion();
+    loadProfiles(v);
     try { S.mods = (await call(api.mods.list(v))).mods; } catch (e) { S.mods = []; fail(e); }
     renderMods();
   }
+  // -----------------------------------------------------------------------
+  // Mod-Profile (2.5): mehrere Mod-Zusammenstellungen je Version
+  // -----------------------------------------------------------------------
+  S.profiles = {};
+  async function loadProfiles(v = contentVersion()) {
+    try { S.profiles[v] = await call(api.profiles.list(v)); } catch (e) { S.profiles[v] = null; }
+    renderProfileBar();
+    return S.profiles[v];
+  }
+  function applyProfileResult(v, r) {
+    if (!r) return;
+    S.profiles[v] = { active: r.active, running: r.running, profiles: r.profiles };
+    if (r.versions) { S.versions = r.versions; applyVersions(); renderHome(); }
+    renderProfileBar();
+  }
+  function renderProfileBar() {
+    const bar = $('#profileBar');
+    if (!bar) return;
+    const v = contentVersion();
+    const st = S.profiles[v];
+    if (!st) { bar.innerHTML = ''; return; }
+    bar.innerHTML = `
+      <div class="pb-head">${icon('layers')}<span>${esc(t('Mod profile'))}</span>${st.running ? `<span class="pb-lock" title="${esc(t('Close Minecraft to switch profiles.'))}">${icon('lock')}${esc(t('Game running'))}</span>` : ''}</div>
+      <div class="pb-chips">
+        ${st.profiles.map(p => `
+          <div class="pb-chip ${p.active ? 'active' : ''}" data-pid="${esc(p.id)}">
+            <button class="pb-main" data-switch ${p.active || st.running ? 'disabled' : ''} title="${esc(p.active ? t('Active profile') : t('Switch to {0}', p.name))}">
+              ${p.source === 'mrpack' ? icon('package') : icon(p.active ? 'check' : 'layers')}
+              <b>${esc(p.name)}</b><span>${esc(p.mods === 1 ? t('1 mod') : t('{0} mods', p.mods))}</span>
+            </button>
+            <button class="pb-more" data-more title="${esc(t('More'))}">${icon('more')}</button>
+          </div>`).join('')}
+        <button class="pb-add" id="pbNew">${icon('plus')}${esc(t('New profile'))}</button>
+        <button class="pb-add" id="pbPack" title="${esc(t('A .mrpack modpack becomes its own profile. Your current mods stay in their profile.'))}">${icon('package')}${esc(t('Modpack as profile'))}</button>
+      </div>`;
+    $('#pbNew', bar).onclick = () => newProfileDialog(v);
+    $('#pbPack', bar).onclick = () => importPack();
+  }
+  $('#profileBar').addEventListener('click', async e => {
+    const chip = e.target.closest('.pb-chip');
+    if (!chip) return;
+    const v = contentVersion();
+    const st = S.profiles[v];
+    const p = st?.profiles.find(x => x.id === chip.dataset.pid);
+    if (!p) return;
+    if (e.target.closest('[data-switch]')) { await switchProfile(v, p, chip); return; }
+    if (e.target.closest('[data-more]')) { e.stopPropagation(); profileMenu(v, p, e.target.closest('[data-more]')); }
+  });
+  async function switchProfile(v, p, chip) {
+    if (chip) chip.classList.add('switching');
+    try {
+      const r = await call(api.profiles.switch(v, p.id));
+      applyProfileResult(v, r);
+      delete S.modUpdates[v];
+      if (S.page === 'mods' && contentVersion() === v) await loadMods();
+      toast('success', t('Profile “{0}” is active: {1} mods.', p.name, (r.profiles.find(x => x.id === p.id) || p).mods));
+    } catch (err) { fail(err); if (chip) chip.classList.remove('switching'); }
+  }
+  let pbMenu = null;
+  function closeProfileMenu() { if (pbMenu) { pbMenu.remove(); pbMenu = null; } }
+  document.addEventListener('click', closeProfileMenu);
+  function profileMenu(v, p, anchor) {
+    closeProfileMenu();
+    const st = S.profiles[v];
+    const items = [
+      ['edit', t('Rename'), () => nameDialog({ title: t('Rename profile'), value: p.name, ok: t('Rename') }, async name => applyProfileResult(v, await call(api.profiles.rename(v, p.id, name))))],
+      ['copy', t('Duplicate'), () => nameDialog({ title: t('Duplicate “{0}”', p.name), value: t('{0} copy', p.name), ok: t('Duplicate') }, async name => { const r = await call(api.profiles.create(v, name, p.id, false)); applyProfileResult(v, r); toast('success', t('Profile “{0}” created.', name)); })]
+    ];
+    if (!p.active && p.id !== 'default') items.push(['trash', t('Delete'), async () => {
+      if (!(await confirmDialog({ title: t('Delete profile “{0}”?', p.name), text: t('Its {0} mods and settings are moved to the recycle bin.', p.mods + p.disabled), ok: t('Delete'), danger: true }))) return;
+      try { applyProfileResult(v, await call(api.profiles.remove(v, p.id))); } catch (err) { fail(err); }
+    }]);
+    if (st?.active === p.id) items.push(['folder', t('Open mods folder'), () => $('#modsFolder').click()]);
+    pbMenu = document.createElement('div');
+    pbMenu.className = 'pb-menu';
+    pbMenu.innerHTML = items.map(([ic, label], i) => `<button data-i="${i}" class="${ic === 'trash' ? 'danger' : ''}">${icon(ic)}${esc(label)}</button>`).join('');
+    document.body.appendChild(pbMenu);
+    const r = anchor.getBoundingClientRect();
+    pbMenu.style.left = `${Math.min(window.innerWidth - 200, r.left)}px`;
+    pbMenu.style.top = `${r.bottom + 6}px`;
+    pbMenu.onclick = ev => { ev.stopPropagation(); const b = ev.target.closest('[data-i]'); if (!b) return; const fn = items[Number(b.dataset.i)][2]; closeProfileMenu(); fn(); };
+  }
+  /** Kleines Namensfeld als Dialog. fn(name) darf werfen -- dann bleibt der Dialog offen. */
+  function nameDialog({ title, value = '', ok, extra = '' }, fn) {
+    const { el, close } = openModal(`
+      <h3>${esc(title)}</h3>
+      <label class="field"><span>${esc(t('Name'))}</span><input id="ndName" maxlength="40" value="${esc(value)}" autocomplete="off" spellcheck="false" /></label>
+      ${extra}
+      <div class="row-btns" style="margin-top:16px"><button class="btn ghost" data-c>${esc(t('Cancel'))}</button><button class="btn" data-go>${esc(ok)}</button></div>`);
+    const input = $('#ndName', el);
+    input.focus(); input.select();
+    const go = () => busy($('[data-go]', el), async () => { await fn(input.value.trim(), el); close(); });
+    $('[data-go]', el).onclick = go;
+    $('[data-c]', el).onclick = close;
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+    return el;
+  }
+  function newProfileDialog(v) {
+    const st = S.profiles[v];
+    const active = st?.profiles.find(p => p.active);
+    nameDialog({
+      title: t('New mod profile'), value: '', ok: t('Create'),
+      extra: `
+        <div class="np-from">
+          <label class="np-opt"><input type="radio" name="npFrom" value="empty" checked /><span><b>${esc(t('Empty'))}</b><small>${esc(t('Only the Vortex files -- add mods afterwards.'))}</small></span></label>
+          <label class="np-opt"><input type="radio" name="npFrom" value="copy" /><span><b>${esc(t('Copy of “{0}”', active?.name || 'Standard'))}</b><small>${esc(t('Same mods and mod settings to change from there.'))}</small></span></label>
+        </div>
+        <label class="imp-opt"><input type="checkbox" id="npActivate" checked /><span>${esc(t('Switch to it now'))}</span></label>`
+    }, async (name, el) => {
+      const from = $('input[name="npFrom"]:checked', el).value === 'copy' ? active?.id : 'empty';
+      const r = await call(api.profiles.create(v, name, from, $('#npActivate', el).checked));
+      applyProfileResult(v, r);
+      delete S.modUpdates[v];
+      if (S.page === 'mods' && contentVersion() === v) await loadMods();
+      toast('success', t('Profile “{0}” created.', name));
+    });
+  }
+
+  // Startseite: Profilwahl neben der Version (nur wenn es mehr als ein Profil gibt)
+  function renderProfilePicker() {
+    const info = versionInfo(selected());
+    const show = Boolean(info && info.profiles > 1);
+    $('#profilePicker').hidden = !show;
+    if (show) $('#ppValue').textContent = info.profile || 'Standard';
+  }
+  $('#ppButton').onclick = async e => {
+    e.stopPropagation();
+    if (isBusy()) return;
+    const menu = $('#ppMenu');
+    if (!menu.hidden) { menu.hidden = true; return; }
+    $('#vpMenu').hidden = true;
+    const v = selected();
+    const st = await loadProfiles(v);
+    if (!st) return;
+    menu.innerHTML = st.profiles.map(p => `
+      <button class="vp-item" data-pid="${esc(p.id)}" ${st.running && !p.active ? 'disabled' : ''}>
+        <b>${esc(p.name)}</b><span>${esc(p.mods === 1 ? t('1 mod') : t('{0} mods', p.mods))}</span>
+        ${p.active ? icon('check', 'tick') : ''}
+      </button>`).join('') + `<button class="vp-item pp-manage" data-manage>${icon('sliders')}<span>${esc(t('Manage profiles…'))}</span></button>`;
+    menu.hidden = false;
+  };
+  $('#ppMenu').onclick = async e => {
+    e.stopPropagation();
+    const menu = $('#ppMenu');
+    if (e.target.closest('[data-manage]')) { menu.hidden = true; S.contentVersion = selected(); showPage('mods'); return; }
+    const item = e.target.closest('[data-pid]');
+    if (!item) return;
+    menu.hidden = true;
+    const v = selected();
+    const p = S.profiles[v]?.profiles.find(x => x.id === item.dataset.pid);
+    if (p && !p.active) await switchProfile(v, p, null);
+  };
+  document.addEventListener('click', () => { const m = $('#ppMenu'); if (m && !m.hidden) m.hidden = true; });
+
   const SRC_LABEL = { vortex: 'VORTEX', addon: 'ADDON', bundled: 'INCLUDED', modrinth: 'MODRINTH', local: 'LOCAL' };
   function renderMods() {
     const v = contentVersion();

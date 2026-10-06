@@ -74,6 +74,24 @@
     'Importing the modpack… this can take a moment.': 'Modpack wird importiert… das kann einen Moment dauern.',
     'Modpack imported into Minecraft {0}: {1} files.': 'Modpack in Minecraft {0} importiert: {1} Dateien.', '{0} files could not be downloaded.': '{0} Dateien konnten nicht geladen werden.',
 
+    // --- Mod-Profile (2.5) ---
+    'Mod profile': 'Mod-Profil', 'Game running': 'Spiel läuft', 'Close Minecraft to switch profiles.': 'Schließ Minecraft, um das Profil zu wechseln.',
+    'Active profile': 'Aktives Profil', 'Switch to {0}': 'Zu {0} wechseln', '1 mod': '1 Mod', '{0} mods': '{0} Mods',
+    'New profile': 'Neues Profil', 'Modpack as profile': 'Modpack als Profil',
+    'A .mrpack modpack becomes its own profile. Your current mods stay in their profile.': 'Ein .mrpack-Modpack wird ein eigenes Profil. Deine jetzigen Mods bleiben in ihrem Profil.',
+    'Profile “{0}” is active: {1} mods.': 'Profil „{0}“ ist aktiv: {1} Mods.', 'Rename': 'Umbenennen', 'Rename profile': 'Profil umbenennen',
+    'Duplicate': 'Duplizieren', 'Duplicate “{0}”': '„{0}“ duplizieren', '{0} copy': '{0} Kopie', 'Profile “{0}” created.': 'Profil „{0}“ erstellt.',
+    'Delete profile “{0}”?': 'Profil „{0}“ löschen?', 'Its {0} mods and settings are moved to the recycle bin.': 'Seine {0} Mods und Einstellungen kommen in den Papierkorb.',
+    'Open mods folder': 'Mods-Ordner öffnen', 'Create': 'Erstellen', 'New mod profile': 'Neues Mod-Profil', 'Empty': 'Leer',
+    'Only the Vortex files -- add mods afterwards.': 'Nur die Vortex-Dateien – Mods fügst du danach hinzu.', 'Copy of “{0}”': 'Kopie von „{0}“',
+    'Same mods and mod settings to change from there.': 'Gleiche Mods und Mod-Einstellungen, von da aus anpassen.', 'Switch to it now': 'Gleich dorthin wechseln',
+    'Manage profiles…': 'Profile verwalten…', 'MOD PROFILE': 'MOD-PROFIL',
+    'Modpack “{0}” is now its own profile in Minecraft {1}: {2} files.': 'Modpack „{0}“ ist jetzt ein eigenes Profil in Minecraft {1}: {2} Dateien.',
+    'Close Minecraft first -- the mods of a running game cannot be switched.': 'Schließ zuerst Minecraft – die Mods eines laufenden Spiels lassen sich nicht wechseln.',
+    'This profile does not exist.': 'Dieses Profil gibt es nicht.', 'Please enter a name.': 'Bitte gib einen Namen ein.',
+    'A profile with this name already exists.': 'Ein Profil mit diesem Namen gibt es schon.', 'At most 30 profiles per version.': 'Höchstens 30 Profile pro Version.',
+    'Switch to another profile first.': 'Wechsle zuerst zu einem anderen Profil.', 'The standard profile cannot be removed.': 'Das Standard-Profil lässt sich nicht löschen.',
+
     // --- Mods ---
     'Add Fabric mods from Modrinth or your own .jar files.': 'Füge Fabric-Mods von Modrinth oder eigene .jar-Dateien hinzu.', 'Filter installed mods': 'Installierte Mods filtern',
     'Check for updates': 'Nach Updates suchen', 'Performance pack': 'Performance-Paket', 'Sodium, Lithium and Entity Culling': 'Sodium, Lithium und Entity Culling',

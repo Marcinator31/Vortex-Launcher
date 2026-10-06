@@ -32,6 +32,7 @@ const betatest = require('./betatest');
 const skins = require('./skins');
 const media = require('./media');
 const mrpack = require('./mrpack');
+const profiles = require('./profiles');
 const discord = require('./discord');
 const news = require('./news');
 const friends = require('./friends');
@@ -135,7 +136,7 @@ function handle(channel, fn) {
   });
 }
 
-function versionsOverview() { return instances.allVersions().map(instances.summary); }
+function versionsOverview() { return instances.allVersions().map(v => ({ ...instances.summary(v), ...profiles.summaryName(v) })); }
 
 function adminVisible() {
   const acc = accounts.currentSummary();
@@ -281,6 +282,17 @@ function registerIpc() {
     const files = (Array.isArray(list) ? list : []).map(String).filter(f => /\.jar$/i.test(f)).slice(0, 50);
     return instances.importMods(v, files);
   });
+
+  // Mod-Profile (2.5)
+  handle('profiles:list', v => profiles.list(v));
+  handle('profiles:switch', (v, id) => ({ ...profiles.switchTo(v, String(id)), versions: versionsOverview() }));
+  handle('profiles:create', (v, name, from, activate) => {
+    const r = profiles.create(v, name, from || 'empty');
+    const out = activate ? profiles.switchTo(v, r.id) : r;
+    return { ...out, id: r.id, versions: versionsOverview() };
+  });
+  handle('profiles:rename', (v, id, name) => ({ ...profiles.rename(v, String(id), name), versions: versionsOverview() }));
+  handle('profiles:remove', async (v, id) => ({ ...(await profiles.remove(v, String(id))), versions: versionsOverview() }));
 
   // Resource Packs
   handle('packs:list', v => ({ packs: instances.listPacks(v) }));
@@ -500,7 +512,7 @@ function registerIpc() {
     shell.showItemInFolder(pick.filePath);
     return r;
   });
-  handle('pack:import', async filePath => {
+  handle('pack:import', async (filePath, opts) => {
     let file = filePath;
     if (!file) {
       const pick = await dialog.showOpenDialog(core.getMainWindow(), { title: 'Import modpack', properties: ['openFile'], filters: [{ name: 'Modrinth modpack', extensions: ['mrpack'] }] });
@@ -508,7 +520,7 @@ function registerIpc() {
       file = pick.filePaths[0];
     }
     if (!/\.mrpack$/i.test(String(file))) throw new Error('Choose a .mrpack file.');
-    const r = await mrpack.importPack(file);
+    const r = await mrpack.importPack(file, { asProfile: !(opts && opts.asProfile === false) });
     return { ...r, versions: versionsOverview() };
   });
 

@@ -61,6 +61,10 @@ function fehlende(from, to) {
 function angebot(from, to) {
   if (!from || !to || from === to) return null;
   try { instances.requireVersion(from); instances.requireVersion(to); } catch (_) { return null; }
+  // Zwischen alten (1.8.9, Legacy Fabric) und neuen Versionen gibt es keine
+  // gemeinsamen Mods -- AppleSkin, Shulker-Vorschau usw. existieren fuer 1.8 nicht.
+  const { isLegacyVersion } = require('./core');
+  if (isLegacyVersion(from) || isLegacyVersion(to)) return null;
   if (gefragt()[key(from, to)]) return null;
   const mods = fehlende(from, to);
   if (!mods.length) return null;

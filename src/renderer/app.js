@@ -1107,6 +1107,8 @@
   const SRC_LABEL = { vortex: 'VORTEX', addon: 'ADDON', bundled: 'INCLUDED', modrinth: 'MODRINTH', local: 'LOCAL' };
   function renderMods() {
     const v = contentVersion();
+    // Performance-Paket (Sodium, Lithium ...) gibt es fuer 1.8.9 & Co. nicht
+    $('#modsPerformance').hidden = /^1\.(\d|1[0-3])(\.|$)/.test(String(v || ''));
     const updates = S.modUpdates[v] || [];
     const f = $('#modsFilter').value.trim().toLowerCase();
     const list = S.mods.filter(m => !f || `${m.name} ${m.file} ${m.description}`.toLowerCase().includes(f));

@@ -124,11 +124,23 @@ function isValidMinecraftVersion(version) {
   return /^(?:1\.\d{1,2}(?:\.\d{1,2})?|[2-9]\d(?:\.\d{1,2}){1,2})$/.test(String(version || '').trim());
 }
 
+/**
+ * Alte Versionen (vor 1.14) laufen mit Legacy Fabric statt Fabric: eigene
+ * Meta-Adresse, auf Modrinth eigener Loader "legacy-fabric".
+ */
+function isLegacyVersion(version) {
+  const m = String(version || '').trim().match(/^1\.(\d{1,2})(?:\.\d{1,2})?$/);
+  return Boolean(m) && Number(m[1]) < 14;
+}
+function fabricMeta(version) { return isLegacyVersion(version) ? 'https://meta.legacyfabric.net' : 'https://meta.fabricmc.net'; }
+function modLoader(version) { return isLegacyVersion(version) ? 'legacy-fabric' : 'fabric'; }
+
 function safeFileName(value) {
   return String(value || 'file').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/(^-|-$)/g, '') || 'file';
 }
 
 module.exports = {
   paths, ensureDir, exists, loadJson, writeJson, setMainWindow, getMainWindow, send,
-  appendFileLog, log, notify, compareVersions, isValidMinecraftVersion, safeFileName
+  appendFileLog, log, notify, compareVersions, isValidMinecraftVersion, safeFileName,
+  isLegacyVersion, fabricMeta, modLoader
 };

@@ -22,7 +22,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { shell } = require('electron');
 const {
-  paths, ensureDir, exists, loadJson, writeJson, log, compareVersions, isValidMinecraftVersion
+  paths, ensureDir, exists, loadJson, writeJson, log, compareVersions, isValidMinecraftVersion, fabricMeta, isLegacyVersion
 } = require('./core');
 const settings = require('./settings');
 const { readModInfo } = require('./jarinfo');
@@ -69,7 +69,7 @@ async function addVersion(version) {
   if (isKnown(v)) return v;
   // Pruefen, ob Fabric diese Version ueberhaupt kennt -- sonst gibt es spaeter
   // einen unverstaendlichen Fehler beim Start.
-  const res = await fetch(`https://meta.fabricmc.net/v2/versions/loader/${encodeURIComponent(v)}`,
+  const res = await fetch(`${fabricMeta(v)}/v2/versions/loader/${encodeURIComponent(v)}`,
     { signal: AbortSignal.timeout(15000) }).catch(() => null);
   if (!res || !res.ok) throw new Error('Fabric could not be reached to check this version. Check your internet connection and try again.');
   const list = await res.json().catch(() => []);
@@ -254,7 +254,7 @@ function cachedFabricProfile(version) {
 async function ensureFabric(version) {
   const cached = cachedFabricProfile(version);
   try {
-    const res = await fetch(`https://meta.fabricmc.net/v2/versions/loader/${encodeURIComponent(version)}`,
+    const res = await fetch(`${fabricMeta(version)}/v2/versions/loader/${encodeURIComponent(version)}`,
       { signal: AbortSignal.timeout(12000) });
     if (!res.ok) throw new Error(`Fabric meta answered ${res.status}`);
     const loaders = await res.json();
@@ -262,7 +262,7 @@ async function ensureFabric(version) {
     if (!pick?.loader?.version) throw new Error(`No Fabric Loader exists for Minecraft ${version}.`);
     const id = `fabric-loader-${pick.loader.version}-${version}`;
     if (cached === id) return { profileId: id, loaderVersion: pick.loader.version };
-    const pr = await fetch(`https://meta.fabricmc.net/v2/versions/loader/${encodeURIComponent(version)}/${encodeURIComponent(pick.loader.version)}/profile/json`,
+    const pr = await fetch(`${fabricMeta(version)}/v2/versions/loader/${encodeURIComponent(version)}/${encodeURIComponent(pick.loader.version)}/profile/json`,
       { signal: AbortSignal.timeout(15000) });
     if (!pr.ok) throw new Error(`Fabric profile answered ${pr.status}`);
     const profile = await pr.json();

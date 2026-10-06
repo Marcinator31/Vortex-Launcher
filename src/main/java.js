@@ -31,6 +31,12 @@ function requiredJavaMajor(version) {
 }
 
 const exe = process.platform === 'win32' ? 'java.exe' : 'java';
+
+/**
+ * Passt dieses Java? Alte Versionen (1.8.9 ... 1.16) brauchen genau Java 8:
+ * LWJGL 2 laeuft mit neueren Javas nicht zuverlaessig (Fenster, Maus, Sound).
+ */
+function passt(major, need) { return need === 8 ? major === 8 : major >= need; }
 function javaBinary(home) { return path.join(home, 'bin', exe); }
 
 /** Alle Java-Verzeichnisse unter root (root selbst und eine Ebene darunter). */
@@ -81,7 +87,7 @@ async function findInstalled(requiredMajor) {
       if (seen.has(home)) continue;
       seen.add(home);
       const major = await majorOfBinary(javaBinary(home));
-      if (major && major >= requiredMajor) return { binary: javaBinary(home), major };
+      if (major && passt(major, requiredMajor)) return { binary: javaBinary(home), major };
     }
   }
   return null;
@@ -146,7 +152,7 @@ async function javaFor(version, customPath = '') {
   if (customPath) {
     const bin = /java(w)?(\.exe)?$/i.test(customPath) ? customPath : javaBinary(customPath);
     const major = await majorOfBinary(bin);
-    if (major && major >= need) {
+    if (major && passt(major, need)) {
       log(`Using your Java ${major}: ${bin}`);
       return { binary: bin, major };
     }

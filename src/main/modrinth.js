@@ -15,7 +15,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { app } = require('electron');
-const { paths, ensureDir, exists, log } = require('./core');
+const { paths, ensureDir, exists, log, modLoader } = require('./core');
 const instances = require('./instances');
 const { readModInfo } = require('./jarinfo');
 
@@ -58,7 +58,7 @@ function hitSummary(h) {
     projectId: h.project_id, slug: h.slug, title: h.title, author: h.author || '',
     description: h.description || '', iconUrl: /^https:\/\/cdn\.modrinth\.com\//.test(h.icon_url || '') ? h.icon_url : null,
     downloads: h.downloads || 0, follows: h.follows || 0,
-    categories: (h.display_categories || h.categories || []).filter(c => c !== 'fabric').slice(0, 4)
+    categories: (h.display_categories || h.categories || []).filter(c => c !== 'fabric' && c !== 'legacy-fabric').slice(0, 4)
   };
 }
 
@@ -68,7 +68,7 @@ async function search(kind, query, version, page = 0, sort = 'relevance') {
   const p = Math.max(0, Math.min(200, Number(page) || 0));
   const index = ['relevance', 'downloads', 'follows', 'newest', 'updated'].includes(sort) ? sort : 'relevance';
   const facets = kind === 'mod'
-    ? [['project_type:mod'], [`versions:${v}`], ['categories:fabric']]
+    ? [['project_type:mod'], [`versions:${v}`], [`categories:${modLoader(v)}`]]
     : kind === 'shader'
       ? [['project_type:shader'], ['categories:iris']]
       : [['project_type:resourcepack'], [`versions:${v}`]];
@@ -126,8 +126,8 @@ async function installMod(projectId, version) {
     if (seen.has(id)) continue;
     seen.add(id);
     try {
-      const params = new URLSearchParams({ game_versions: JSON.stringify([v]), loaders: JSON.stringify(['fabric']) });
-      const ver = bestVersion(await api(`/project/${encodeURIComponent(id)}/version?${params}`), v, 'fabric');
+      const params = new URLSearchParams({ game_versions: JSON.stringify([v]), loaders: JSON.stringify([modLoader(v)]) });
+      const ver = bestVersion(await api(`/project/${encodeURIComponent(id)}/version?${params}`), v, modLoader(v));
       if (!ver) { missing.push(id); continue; }
       plan.push({ id, ver });
       for (const d of ver.dependencies || []) {
@@ -220,7 +220,7 @@ async function checkUpdates(version) {
   const hashes = [...byHash.keys()];
   const [current, latest] = await Promise.all([
     api('/version_files', { hashes, algorithm: 'sha1' }),
-    api('/version_files/update', { hashes, algorithm: 'sha1', loaders: ['fabric'], game_versions: [v] })
+    api('/version_files/update', { hashes, algorithm: 'sha1', loaders: [modLoader(v)], game_versions: [v] })
   ]);
   const map = instances.projectMap(v);
   let mapChanged = false;

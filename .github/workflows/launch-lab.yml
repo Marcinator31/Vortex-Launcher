@@ -1,0 +1,52 @@
+name: launch-lab
+# Start-Labor: der Launcher-Code installiert und startet Minecraft wirklich
+# (Linux + Xvfb, Offline-Konto). Fuer neue Versionen wie 1.8.9 (Legacy Fabric).
+# Bericht + Bildschirmfoto: Release "launch-lab".
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Minecraft-Version'
+        default: '1.8.9'
+permissions:
+  contents: write
+jobs:
+  lab:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '8'
+          distribution: 'temurin'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Abhaengigkeiten
+        run: |
+          npm install --omit=dev --ignore-scripts --no-audit --no-fund
+          sudo apt-get update -q
+          sudo apt-get install -y -q xvfb mesa-utils libgl1-mesa-dri libxrandr2 libxxf86vm1 libopenal1 x11-xserver-utils imagemagick
+      - name: Vortex-Jar (1.8.9, Entwicklungsstand)
+        if: ${{ github.event.inputs.version == '1.8.9' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download legacy-dev --repo Marcinator31/Vortex-Client --pattern 'vortexclient-legacy-dev.jar' --dir "$RUNNER_TEMP"
+          echo "LAB_JAR=$RUNNER_TEMP/vortexclient-legacy-dev.jar" >> "$GITHUB_ENV"
+      - name: Labor
+        env:
+          LAB_V: ${{ github.event.inputs.version }}
+        run: |
+          echo "LAB_JAVA=$JAVA_HOME/bin/java" >> "$GITHUB_ENV"
+          export LAB_JAVA="$JAVA_HOME/bin/java"
+          xvfb-run -a -s "-screen 0 1280x720x24 +extension RANDR" node tools/launch-lab/run.js
+      - name: Bericht hochladen
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V="${{ github.event.inputs.version }}"
+          gh release view launch-lab >/dev/null 2>&1 || gh release create launch-lab --prerelease --title "Start-Labor" --notes "Automatische Testberichte (nicht zum Herunterladen gedacht)."
+          for f in lab-launch/*; do gh release upload launch-lab "$f" --clobber || true; done

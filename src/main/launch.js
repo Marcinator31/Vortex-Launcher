@@ -231,7 +231,7 @@ async function start({ version, serverId = null, address = null, safe = false, h
     const prep = await instances.prepare(v);
 
     // Neue Versionen aus dem Admin-Bereich bringen evtl. keine Fabric API mit
-    if (prep.vortex && !prep.hasFabricApi) {
+    if (prep.vortex && !prep.hasFabricApi && !require('./core').isLegacyVersion(v)) {
       progress('prepare', 'Installing Fabric API', null);
       try { await modrinth.installMod('fabric-api', v); } catch (e) { log(`Fabric API could not be installed: ${e.message}`, 'warn'); }
     }
@@ -327,7 +327,12 @@ async function start({ version, serverId = null, address = null, safe = false, h
         ...(server?.hosted ? [`-Dvortex.hosting.dir=${require('./hosting').ingameDir()}`] : [])
       ]
     };
-    if (server) options.quickPlay = { type: 'multiplayer', identifier: server.address };
+    if (server) {
+      // "Quick Play" gibt es erst ab 1.20 -- aeltere Versionen (z. B. 1.8.9) bekommen --server/--port
+      const m = String(v).match(/^1\.(\d+)/);
+      const alt = Boolean(m) && Number(m[1]) < 20;
+      options.quickPlay = { type: alt ? 'legacy' : 'multiplayer', identifier: server.address };
+    }
 
     progress('download', 'Checking game files', null);
     log(`Launching Minecraft ${v} (${prep.profileId}) as ${account.username} with ${cfg.memoryMax} MB RAM.`);

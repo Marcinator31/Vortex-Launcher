@@ -38,6 +38,10 @@ const DEFAULTS = Object.freeze({
   musicAutoplay: false,
   musicPauseInGame: true,
   accent: 'vortex',               // Akzentfarbe (siehe Oberflaeche)
+  wallpaper: 'slideshow',         // slideshow | off | <id> (assets/wallpapers)
+  wallpaperInterval: 60,          // Sekunden je Bild in der Diashow, 0 = je Start eins
+  wallpaperMotion: true,          // langsames Schwenken/Zoomen
+  wallpaperBackdrop: true,        // weicher Schein hinter allen Seiten
   jvmPreset: 'custom',            // smooth | lowram | default | custom
   autoCopyScreenshots: true       // F2 im Spiel -> Bild direkt in der Zwischenablage
 });
@@ -65,6 +69,10 @@ function normalize(raw = {}) {
   s.musicAutoplay = Boolean(s.musicAutoplay);
   s.musicPauseInGame = Boolean(s.musicPauseInGame);
   s.accent = /^[a-z]{2,12}$/.test(String(s.accent)) ? s.accent : 'vortex';
+  s.wallpaper = /^[a-z0-9-]{1,32}$/.test(String(s.wallpaper)) ? s.wallpaper : 'slideshow';
+  s.wallpaperInterval = [0, 30, 60, 300].includes(Number(s.wallpaperInterval)) ? Number(s.wallpaperInterval) : 60;
+  s.wallpaperMotion = s.wallpaperMotion !== false;
+  s.wallpaperBackdrop = s.wallpaperBackdrop !== false;
   s.jvmPreset = ['smooth', 'lowram', 'default', 'custom'].includes(s.jvmPreset) ? s.jvmPreset : 'custom';
   s.autoCrashReport = Boolean(s.autoCrashReport);
   s.betaChannel = Boolean(s.betaChannel);

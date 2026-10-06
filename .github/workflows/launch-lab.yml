@@ -8,6 +8,9 @@ on:
       version:
         description: 'Minecraft-Version'
         default: '1.8.9'
+  push:
+    branches: [ "feature/**" ]
+    paths: [ "tools/launch-lab/**", ".github/workflows/launch-lab.yml" ]
 permissions:
   contents: write
 jobs:
@@ -29,7 +32,7 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y -q xvfb mesa-utils libgl1-mesa-dri libxrandr2 libxxf86vm1 libopenal1 x11-xserver-utils imagemagick
       - name: Vortex-Jar (1.8.9, Entwicklungsstand)
-        if: ${{ github.event.inputs.version == '1.8.9' }}
+        if: ${{ (github.event.inputs.version || '1.8.9') == '1.8.9' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -37,7 +40,7 @@ jobs:
           echo "LAB_JAR=$RUNNER_TEMP/vortexclient-legacy-dev.jar" >> "$GITHUB_ENV"
       - name: Labor
         env:
-          LAB_V: ${{ github.event.inputs.version }}
+          LAB_V: ${{ github.event.inputs.version || '1.8.9' }}
         run: |
           echo "LAB_JAVA=$JAVA_HOME/bin/java" >> "$GITHUB_ENV"
           export LAB_JAVA="$JAVA_HOME/bin/java"
@@ -47,6 +50,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          V="${{ github.event.inputs.version }}"
+          V="${{ github.event.inputs.version || '1.8.9' }}"
           gh release view launch-lab >/dev/null 2>&1 || gh release create launch-lab --prerelease --title "Start-Labor" --notes "Automatische Testberichte (nicht zum Herunterladen gedacht)."
           for f in lab-launch/*; do gh release upload launch-lab "$f" --clobber || true; done

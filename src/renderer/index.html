@@ -134,10 +134,17 @@
     </div>
   </aside>
 
+  <div class="wp-backdrop" id="wpBackdrop" aria-hidden="true"><div class="wb-layer"></div><div class="wb-layer"></div></div>
   <main class="content">
     <!-- ================= HOME ================= -->
     <section class="page active" id="page-home">
       <div class="hero">
+        <div class="wp-stage" id="wpStage" aria-hidden="true"><div class="wp-layer"></div><div class="wp-layer"></div><div class="wp-shade"></div></div>
+        <div class="wp-chip" id="wpChip" hidden>
+          <button class="wp-nav" data-wp="-1" title="Previous wallpaper"><svg><use href="#i-left"/></svg></button>
+          <span class="wp-name"><svg><use href="#i-camera"/></svg><b id="wpName"></b></span>
+          <button class="wp-nav" data-wp="1" title="Next wallpaper"><svg><use href="#i-right"/></svg></button>
+        </div>
         <div class="hero-art" aria-hidden="true">
           <div class="glow g1"></div><div class="glow g2"></div>
           <img class="hero-ring" src="../../assets/branding/logo_ring.png" alt="" />
@@ -158,6 +165,14 @@
               <svg class="vp-chev"><use href="#i-chevron"/></svg>
             </button>
             <div class="vp-menu" id="vpMenu" hidden></div>
+          </div>
+          <div class="version-picker profile-picker" id="profilePicker" hidden>
+            <button class="vp-button pp-button" id="ppButton" type="button">
+              <span class="vp-label">MOD PROFILE</span>
+              <span class="vp-value pp-value" id="ppValue">Standard</span>
+              <svg class="vp-chev"><use href="#i-chevron"/></svg>
+            </button>
+            <div class="vp-menu" id="ppMenu" hidden></div>
           </div>
           <button class="play" id="playBtn" type="button">
             <span class="play-fill" id="playFill"></span>
@@ -215,6 +230,7 @@
         <div><p class="eyebrow">CONTENT</p><h2>Mods</h2><p class="muted">Add Fabric mods from Modrinth or your own .jar files.</p></div>
         <div class="head-tools"><div class="instance-chip" data-instance-chip></div></div>
       </div>
+      <div class="profile-bar" id="profileBar"></div>
       <div class="tabs" data-tabs="mods">
         <button class="tab active" data-tab="installed">Installed <span class="count" id="modsCount">0</span></button>
         <button class="tab" data-tab="discover">Discover</button>
@@ -494,6 +510,22 @@
             <div><strong>Accent colour</strong><p>Buttons, highlights and the play button.</p></div>
             <div class="accents" id="setAccent"></div>
           </div>
+          <div class="set-row wp-set-row">
+            <div><strong>Wallpaper</strong><p>Real Minecraft scenes on the start page. Slideshow switches between all of them.</p></div>
+          </div>
+          <div class="wp-grid" id="setWallpaper"></div>
+          <div class="set-row">
+            <div><strong>Change every</strong><p>How long one wallpaper stays in the slideshow.</p></div>
+            <div class="segmented" id="setWpInterval"><button data-value="30">30 s</button><button data-value="60">1 min</button><button data-value="300">5 min</button><button data-value="0">Each start</button></div>
+          </div>
+          <div class="set-row">
+            <div><strong>Slow camera motion</strong><p>The picture drifts and zooms very slowly.</p></div>
+            <label class="switch"><input type="checkbox" id="setWpMotion" /><i></i></label>
+          </div>
+          <div class="set-row">
+            <div><strong>Wallpaper behind every page</strong><p>A soft, blurred glow of the wallpaper behind the whole launcher.</p></div>
+            <label class="switch"><input type="checkbox" id="setWpBackdrop" /><i></i></label>
+          </div>
         </section>
 
         <section class="card set-card">
@@ -631,6 +663,7 @@
   <div class="modal-root" id="modalRoot" hidden></div>
 </div>
 
+<script src="../../assets/wallpapers/wallpapers.js"></script>
 <script src="../shared/i18n.js"></script>
 <script src="app.js"></script>
 </body>

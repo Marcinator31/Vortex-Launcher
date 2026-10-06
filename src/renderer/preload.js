@@ -119,7 +119,14 @@ contextBridge.exposeInMainWorld('vortex', {
   },
   pack: {
     export: (v, opts) => call('pack:export', v, opts),
-    import: file => call('pack:import', file || null)
+    import: (file, opts) => call('pack:import', file || null, opts || {})
+  },
+  profiles: {
+    list: v => call('profiles:list', v),
+    switch: (v, id) => call('profiles:switch', v, id),
+    create: (v, name, from, activate) => call('profiles:create', v, name, from || 'empty', Boolean(activate)),
+    rename: (v, id, name) => call('profiles:rename', v, id, name),
+    remove: (v, id) => call('profiles:remove', v, id)
   },
   servers: {
     list: () => call('servers:list'),

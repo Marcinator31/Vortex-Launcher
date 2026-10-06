@@ -100,7 +100,11 @@ function safeRel(p) {
   return s;
 }
 
-async function importPack(file) {
+/**
+ * opts.asProfile (Standard: ja): das Modpack landet in einem eigenen, neuen
+ * Mod-Profil der Version -- die bisherigen Mods bleiben im alten Profil.
+ */
+async function importPack(file, opts = {}) {
   const z = zip.open(file);
   const raw = z.read('modrinth.index.json', 8 * 1024 * 1024);
   if (!raw) throw new Error('This is not a Modrinth modpack (.mrpack).');
@@ -115,6 +119,10 @@ async function importPack(file) {
   if (!instances.isKnown(v)) await instances.addVersion(v);
   const root = paths.instanceRoot(v);
   ensureDir(root);
+  let profile = null;
+  if (opts.asProfile !== false) {
+    profile = require('./profiles').createAndActivate(v, String(index.name || path.basename(file, '.mrpack')), 'mrpack');
+  }
 
   const added = [], skipped = [], failed = [];
   for (const f of Array.isArray(index.files) ? index.files : []) {
@@ -157,7 +165,7 @@ async function importPack(file) {
     if (seenIds.has(m.id)) { try { fs.rmSync(m.path, { force: true }); } catch (_) {} } else seenIds.set(m.id, m.file);
   }
   log(`Imported modpack "${index.name || file}" into ${v}: ${added.length} files.`);
-  return { version: v, name: String(index.name || ''), added: added.length, skipped: skipped.length, failed };
+  return { version: v, name: String(index.name || ''), profile, added: added.length, skipped: skipped.length, failed };
 }
 
 module.exports = { exportPack, importPack, readModInfo };

@@ -386,6 +386,7 @@
     }
     renderPlay();
     renderVersionMenu();
+    renderProfilePicker();
     renderQuickServers();
     renderInstanceCard();
     renderNews();
@@ -822,7 +823,10 @@
       if (r.canceled) return;
       S.versions = r.versions;
       renderVersions(); renderVersionMenu();
-      toast('success', t('Modpack imported into Minecraft {0}: {1} files.', r.version, r.added), [{ label: t('Select'), run: () => selectVersion(r.version) }]);
+      if (r.profile) { delete S.profiles[r.version]; if (S.page === 'mods' && contentVersion() === r.version) loadMods(); }
+      toast('success', r.profile
+        ? t('Modpack “{0}” is now its own profile in Minecraft {1}: {2} files.', r.name || 'Modpack', r.version, r.added)
+        : t('Modpack imported into Minecraft {0}: {1} files.', r.version, r.added), [{ label: t('Select'), run: () => selectVersion(r.version) }]);
       if (r.failed?.length) toast('error', t('{0} files could not be downloaded.', r.failed.length));
     });
   }
@@ -942,9 +946,164 @@
   // -----------------------------------------------------------------------
   async function loadMods() {
     const v = contentVersion();
+    loadProfiles(v);
     try { S.mods = (await call(api.mods.list(v))).mods; } catch (e) { S.mods = []; fail(e); }
     renderMods();
   }
+  // -----------------------------------------------------------------------
+  // Mod-Profile (2.5): mehrere Mod-Zusammenstellungen je Version
+  // -----------------------------------------------------------------------
+  S.profiles = {};
+  async function loadProfiles(v = contentVersion()) {
+    try { S.profiles[v] = await call(api.profiles.list(v)); } catch (e) { S.profiles[v] = null; }
+    renderProfileBar();
+    return S.profiles[v];
+  }
+  function applyProfileResult(v, r) {
+    if (!r) return;
+    S.profiles[v] = { active: r.active, running: r.running, profiles: r.profiles };
+    if (r.versions) { S.versions = r.versions; applyVersions(); renderHome(); }
+    renderProfileBar();
+  }
+  function renderProfileBar() {
+    const bar = $('#profileBar');
+    if (!bar) return;
+    const v = contentVersion();
+    const st = S.profiles[v];
+    if (!st) { bar.innerHTML = ''; return; }
+    bar.innerHTML = `
+      <div class="pb-head">${icon('layers')}<span>${esc(t('Mod profile'))}</span>${st.running ? `<span class="pb-lock" title="${esc(t('Close Minecraft to switch profiles.'))}">${icon('lock')}${esc(t('Game running'))}</span>` : ''}</div>
+      <div class="pb-chips">
+        ${st.profiles.map(p => `
+          <div class="pb-chip ${p.active ? 'active' : ''}" data-pid="${esc(p.id)}">
+            <button class="pb-main" data-switch ${p.active || st.running ? 'disabled' : ''} title="${esc(p.active ? t('Active profile') : t('Switch to {0}', p.name))}">
+              ${p.source === 'mrpack' ? icon('package') : icon(p.active ? 'check' : 'layers')}
+              <b>${esc(p.name)}</b><span>${esc(p.mods === 1 ? t('1 mod') : t('{0} mods', p.mods))}</span>
+            </button>
+            <button class="pb-more" data-more title="${esc(t('More'))}">${icon('more')}</button>
+          </div>`).join('')}
+        <button class="pb-add" id="pbNew">${icon('plus')}${esc(t('New profile'))}</button>
+        <button class="pb-add" id="pbPack" title="${esc(t('A .mrpack modpack becomes its own profile. Your current mods stay in their profile.'))}">${icon('package')}${esc(t('Modpack as profile'))}</button>
+      </div>`;
+    $('#pbNew', bar).onclick = () => newProfileDialog(v);
+    $('#pbPack', bar).onclick = () => importPack();
+  }
+  $('#profileBar').addEventListener('click', async e => {
+    const chip = e.target.closest('.pb-chip');
+    if (!chip) return;
+    const v = contentVersion();
+    const st = S.profiles[v];
+    const p = st?.profiles.find(x => x.id === chip.dataset.pid);
+    if (!p) return;
+    if (e.target.closest('[data-switch]')) { await switchProfile(v, p, chip); return; }
+    if (e.target.closest('[data-more]')) { e.stopPropagation(); profileMenu(v, p, e.target.closest('[data-more]')); }
+  });
+  async function switchProfile(v, p, chip) {
+    if (chip) chip.classList.add('switching');
+    try {
+      const r = await call(api.profiles.switch(v, p.id));
+      applyProfileResult(v, r);
+      delete S.modUpdates[v];
+      if (S.page === 'mods' && contentVersion() === v) await loadMods();
+      toast('success', t('Profile “{0}” is active: {1} mods.', p.name, (r.profiles.find(x => x.id === p.id) || p).mods));
+    } catch (err) { fail(err); if (chip) chip.classList.remove('switching'); }
+  }
+  let pbMenu = null;
+  function closeProfileMenu() { if (pbMenu) { pbMenu.remove(); pbMenu = null; } }
+  document.addEventListener('click', closeProfileMenu);
+  function profileMenu(v, p, anchor) {
+    closeProfileMenu();
+    const st = S.profiles[v];
+    const items = [
+      ['edit', t('Rename'), () => nameDialog({ title: t('Rename profile'), value: p.name, ok: t('Rename') }, async name => applyProfileResult(v, await call(api.profiles.rename(v, p.id, name))))],
+      ['copy', t('Duplicate'), () => nameDialog({ title: t('Duplicate “{0}”', p.name), value: t('{0} copy', p.name), ok: t('Duplicate') }, async name => { const r = await call(api.profiles.create(v, name, p.id, false)); applyProfileResult(v, r); toast('success', t('Profile “{0}” created.', name)); })]
+    ];
+    if (!p.active && p.id !== 'default') items.push(['trash', t('Delete'), async () => {
+      if (!(await confirmDialog({ title: t('Delete profile “{0}”?', p.name), text: t('Its {0} mods and settings are moved to the recycle bin.', p.mods + p.disabled), ok: t('Delete'), danger: true }))) return;
+      try { applyProfileResult(v, await call(api.profiles.remove(v, p.id))); } catch (err) { fail(err); }
+    }]);
+    if (st?.active === p.id) items.push(['folder', t('Open mods folder'), () => $('#modsFolder').click()]);
+    pbMenu = document.createElement('div');
+    pbMenu.className = 'pb-menu';
+    pbMenu.innerHTML = items.map(([ic, label], i) => `<button data-i="${i}" class="${ic === 'trash' ? 'danger' : ''}">${icon(ic)}${esc(label)}</button>`).join('');
+    document.body.appendChild(pbMenu);
+    const r = anchor.getBoundingClientRect();
+    pbMenu.style.left = `${Math.min(window.innerWidth - 200, r.left)}px`;
+    pbMenu.style.top = `${r.bottom + 6}px`;
+    pbMenu.onclick = ev => { ev.stopPropagation(); const b = ev.target.closest('[data-i]'); if (!b) return; const fn = items[Number(b.dataset.i)][2]; closeProfileMenu(); fn(); };
+  }
+  /** Kleines Namensfeld als Dialog. fn(name) darf werfen -- dann bleibt der Dialog offen. */
+  function nameDialog({ title, value = '', ok, extra = '' }, fn) {
+    const { el, close } = openModal(`
+      <h3>${esc(title)}</h3>
+      <label class="field"><span>${esc(t('Name'))}</span><input id="ndName" maxlength="40" value="${esc(value)}" autocomplete="off" spellcheck="false" /></label>
+      ${extra}
+      <div class="row-btns" style="margin-top:16px"><button class="btn ghost" data-c>${esc(t('Cancel'))}</button><button class="btn" data-go>${esc(ok)}</button></div>`);
+    const input = $('#ndName', el);
+    input.focus(); input.select();
+    const go = () => busy($('[data-go]', el), async () => { await fn(input.value.trim(), el); close(); });
+    $('[data-go]', el).onclick = go;
+    $('[data-c]', el).onclick = close;
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+    return el;
+  }
+  function newProfileDialog(v) {
+    const st = S.profiles[v];
+    const active = st?.profiles.find(p => p.active);
+    nameDialog({
+      title: t('New mod profile'), value: '', ok: t('Create'),
+      extra: `
+        <div class="np-from">
+          <label class="np-opt"><input type="radio" name="npFrom" value="empty" checked /><span><b>${esc(t('Empty'))}</b><small>${esc(t('Only the Vortex files -- add mods afterwards.'))}</small></span></label>
+          <label class="np-opt"><input type="radio" name="npFrom" value="copy" /><span><b>${esc(t('Copy of “{0}”', active?.name || 'Standard'))}</b><small>${esc(t('Same mods and mod settings to change from there.'))}</small></span></label>
+        </div>
+        <label class="imp-opt"><input type="checkbox" id="npActivate" checked /><span>${esc(t('Switch to it now'))}</span></label>`
+    }, async (name, el) => {
+      const from = $('input[name="npFrom"]:checked', el).value === 'copy' ? active?.id : 'empty';
+      const r = await call(api.profiles.create(v, name, from, $('#npActivate', el).checked));
+      applyProfileResult(v, r);
+      delete S.modUpdates[v];
+      if (S.page === 'mods' && contentVersion() === v) await loadMods();
+      toast('success', t('Profile “{0}” created.', name));
+    });
+  }
+
+  // Startseite: Profilwahl neben der Version (nur wenn es mehr als ein Profil gibt)
+  function renderProfilePicker() {
+    const info = versionInfo(selected());
+    const show = Boolean(info && info.profiles > 1);
+    $('#profilePicker').hidden = !show;
+    if (show) $('#ppValue').textContent = info.profile || 'Standard';
+  }
+  $('#ppButton').onclick = async e => {
+    e.stopPropagation();
+    if (isBusy()) return;
+    const menu = $('#ppMenu');
+    if (!menu.hidden) { menu.hidden = true; return; }
+    $('#vpMenu').hidden = true;
+    const v = selected();
+    const st = await loadProfiles(v);
+    if (!st) return;
+    menu.innerHTML = st.profiles.map(p => `
+      <button class="vp-item" data-pid="${esc(p.id)}" ${st.running && !p.active ? 'disabled' : ''}>
+        <b>${esc(p.name)}</b><span>${esc(p.mods === 1 ? t('1 mod') : t('{0} mods', p.mods))}</span>
+        ${p.active ? icon('check', 'tick') : ''}
+      </button>`).join('') + `<button class="vp-item pp-manage" data-manage>${icon('sliders')}<span>${esc(t('Manage profiles…'))}</span></button>`;
+    menu.hidden = false;
+  };
+  $('#ppMenu').onclick = async e => {
+    e.stopPropagation();
+    const menu = $('#ppMenu');
+    if (e.target.closest('[data-manage]')) { menu.hidden = true; S.contentVersion = selected(); showPage('mods'); return; }
+    const item = e.target.closest('[data-pid]');
+    if (!item) return;
+    menu.hidden = true;
+    const v = selected();
+    const p = S.profiles[v]?.profiles.find(x => x.id === item.dataset.pid);
+    if (p && !p.active) await switchProfile(v, p, null);
+  };
+  document.addEventListener('click', () => { const m = $('#ppMenu'); if (m && !m.hidden) m.hidden = true; });
+
   const SRC_LABEL = { vortex: 'VORTEX', addon: 'ADDON', bundled: 'INCLUDED', modrinth: 'MODRINTH', local: 'LOCAL' };
   function renderMods() {
     const v = contentVersion();
@@ -2327,6 +2486,7 @@
     $('#setMusicAuto').checked = Boolean(c.musicAutoplay);
     $('#setMusicPause').checked = c.musicPauseInGame !== false;
     renderAccents();
+    renderWallpaperSettings();
     $('#setBetaRow').hidden = !(S.betaAllowed || S.adminVisible);
     $('#setBeta').checked = Boolean(c.betaChannel);
     $('#setConsoleCrash').checked = c.showConsoleOnCrash !== false;
@@ -2396,6 +2556,133 @@
     applyAccent(b.dataset.accent);
     saveSettings({ accent: b.dataset.accent }).then(renderAccents);
   };
+
+
+  // -----------------------------------------------------------------------
+  // Wallpaper (2.5): echte Minecraft-Szenen auf der Startseite, weiche
+  // Ueberblendung, langsames Schwenken; dazu ein unscharfer Schein hinter
+  // allen Seiten. Bilder: assets/wallpapers (wallpapers.js listet sie).
+  // -----------------------------------------------------------------------
+  const WALLPAPERS = Array.isArray(window.VORTEX_WALLPAPERS) ? window.VORTEX_WALLPAPERS : [];
+  const WP = { idx: -1, front: 0, timer: null, shown: null, loaded: new Map() };
+  const wpUrl = w => `../../assets/wallpapers/${w.file}`;
+  const reducedMotion = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function wpPreload(w) {
+    if (WP.loaded.has(w.id)) return WP.loaded.get(w.id);
+    const p = new Promise(resolve => {
+      const img = new Image();
+      img.onload = () => (img.decode ? img.decode().catch(() => {}) : Promise.resolve()).then(() => resolve(true));
+      img.onerror = () => resolve(false);
+      img.src = wpUrl(w);
+    });
+    WP.loaded.set(w.id, p);
+    return p;
+  }
+  function wpChoice() {
+    const s = S.settings.wallpaper || 'slideshow';
+    if (s === 'off' || !WALLPAPERS.length) return null;
+    if (s !== 'slideshow') return WALLPAPERS.find(w => w.id === s) || WALLPAPERS[0];
+    return 'slideshow';
+  }
+  /** Bild zeigen: in die hintere Ebene laden, dann weich ueberblenden. */
+  async function wpShow(w) {
+    if (!w || (WP.shown && WP.shown.id === w.id)) return;
+    WP.shown = w;
+    const ok = await wpPreload(w);
+    if (!ok || WP.shown !== w) return;
+    const motion = S.settings.wallpaperMotion !== false && !reducedMotion();
+    const dauer = Math.max(40, (Number(S.settings.wallpaperInterval) || 60) + 8);
+    // Schwenk-Richtung je Bild leicht anders, Mittelpunkt aus "focus" (wo das Motiv ist)
+    const [fx, fy] = Array.isArray(w.focus) ? w.focus : [50, 50];
+    const dir = WALLPAPERS.indexOf(w) % 2 ? -1 : 1;
+    WP.front ^= 1;
+    for (const stage of [$('#wpStage'), $('#wpBackdrop')]) {
+      if (!stage) continue;
+      const layers = $$(stage.id === 'wpStage' ? '.wp-layer' : '.wb-layer', stage);
+      const next = layers[WP.front], prev = layers[WP.front ^ 1];
+      next.style.backgroundImage = `url("${wpUrl(w)}")`;
+      next.style.backgroundPosition = `${fx}% ${fy}%`;
+      next.style.setProperty('--kb-x', `${dir * 2.2}%`);
+      next.style.setProperty('--kb-y', `${(fy > 55 ? -1 : 1) * 1.2}%`);
+      next.style.setProperty('--kb-dur', `${dauer}s`);
+      next.style.transformOrigin = `${fx}% ${fy}%`;
+      next.classList.remove('kb');
+      void next.offsetWidth; // Animation neu starten
+      if (motion && stage.id === 'wpStage') next.classList.add('kb');
+      next.classList.add('on');
+      prev.classList.remove('on');
+    }
+    $('#wpName').textContent = w.name;
+    $('#wpChip').hidden = false;
+    // Das naechste schon mal vorladen
+    if (wpChoice() === 'slideshow') wpPreload(WALLPAPERS[(WALLPAPERS.indexOf(w) + 1) % WALLPAPERS.length]);
+  }
+  function wpStep(d) {
+    if (!WALLPAPERS.length) return;
+    WP.idx = (WP.idx + d + WALLPAPERS.length) % WALLPAPERS.length;
+    wpShow(WALLPAPERS[WP.idx]);
+  }
+  function wpSchedule() {
+    clearInterval(WP.timer); WP.timer = null;
+    const sec = Number(S.settings.wallpaperInterval) || 0;
+    if (wpChoice() === 'slideshow' && sec > 0) WP.timer = setInterval(() => { if (!document.hidden) wpStep(1); }, sec * 1000);
+  }
+  function applyWallpaper() {
+    const c = wpChoice();
+    const on = Boolean(c);
+    $('#app').classList.toggle('wp-on', on);
+    $('#app').classList.toggle('wp-backdrop-on', on && S.settings.wallpaperBackdrop !== false);
+    $('.hero').classList.toggle('has-wp', on);
+    if (!on) {
+      clearInterval(WP.timer); WP.shown = null; $('#wpChip').hidden = true;
+      $$('#wpStage .wp-layer, #wpBackdrop .wb-layer').forEach(l => l.classList.remove('on', 'kb'));
+      return;
+    }
+    if (c === 'slideshow') {
+      if (WP.idx < 0) {
+        // Je Start ein anderes: Zufall, aber nicht dasselbe wie beim letzten Mal
+        let last = -1;
+        try { last = Number(localStorage.getItem('vx.wp.last') ?? -1); } catch (_) {}
+        WP.idx = Math.floor(Math.random() * WALLPAPERS.length);
+        if (WALLPAPERS.length > 1 && WP.idx === last) WP.idx = (WP.idx + 1) % WALLPAPERS.length;
+        try { localStorage.setItem('vx.wp.last', String(WP.idx)); } catch (_) {}
+      }
+      wpShow(WALLPAPERS[WP.idx]);
+    } else {
+      WP.idx = WALLPAPERS.indexOf(c);
+      wpShow(c);
+    }
+    $$('#wpChip .wp-nav').forEach(b => { b.hidden = c !== 'slideshow'; });
+    wpSchedule();
+  }
+  $('#wpChip').addEventListener('click', e => {
+    const b = e.target.closest('[data-wp]');
+    if (!b) return;
+    wpStep(Number(b.dataset.wp));
+    wpSchedule(); // nach Hand-Wechsel wieder volle Zeit
+  });
+  function renderWallpaperSettings() {
+    const cur = S.settings.wallpaper || 'slideshow';
+    const thumbs = WALLPAPERS.slice(0, 4).map(w => `<i style="background-image:url('${esc(wpUrl(w))}')"></i>`).join('');
+    $('#setWallpaper').innerHTML = `
+      <button class="wp-tile mix ${cur === 'slideshow' ? 'active' : ''}" data-wpset="slideshow"><span class="wp-mosaic">${thumbs}</span><b>${esc(t('Slideshow'))}</b></button>
+      ${WALLPAPERS.map(w => `<button class="wp-tile ${cur === w.id ? 'active' : ''}" data-wpset="${esc(w.id)}" style="background-image:url('${esc(wpUrl(w))}')"><b>${esc(w.name)}</b></button>`).join('')}
+      <button class="wp-tile off ${cur === 'off' ? 'active' : ''}" data-wpset="off">${icon('x')}<b>${esc(t('Off'))}</b></button>`;
+    $$('#setWpInterval button').forEach(b => b.classList.toggle('active', Number(b.dataset.value) === Number(S.settings.wallpaperInterval ?? 60)));
+    $('#setWpMotion').checked = S.settings.wallpaperMotion !== false;
+    $('#setWpBackdrop').checked = S.settings.wallpaperBackdrop !== false;
+  }
+  $('#setWallpaper').onclick = e => {
+    const b = e.target.closest('[data-wpset]');
+    if (!b) return;
+    saveSettings({ wallpaper: b.dataset.wpset }).then(() => { WP.shown = null; applyWallpaper(); renderWallpaperSettings(); });
+  };
+  $('#setWpInterval').onclick = e => {
+    const b = e.target.closest('button[data-value]');
+    if (b) saveSettings({ wallpaperInterval: Number(b.dataset.value) }).then(() => { renderWallpaperSettings(); wpSchedule(); });
+  };
+  $('#setWpMotion').onchange = e => saveSettings({ wallpaperMotion: e.target.checked }).then(() => { WP.shown = null; applyWallpaper(); });
+  $('#setWpBackdrop').onchange = e => saveSettings({ wallpaperBackdrop: e.target.checked }).then(applyWallpaper);
 
   // -----------------------------------------------------------------------
   // Musik
@@ -3828,6 +4115,7 @@
     S.contentVersion = selected();
     if (S.pendingJoin) setTimeout(() => handleJoin(S.pendingJoin), 600);
     applyAccent(S.settings.accent);
+    applyWallpaper();
     $('#muVol').value = S.settings.musicVolume ?? 0.4;
     musicPaint();
     if (S.settings.musicAutoplay && !S.sessions.length) setTimeout(() => musicNext(1), 1200);

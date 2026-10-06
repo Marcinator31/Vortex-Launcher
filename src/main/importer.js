@@ -354,7 +354,7 @@ async function importProfile(p, version, opts, modrinth) {
     for (let i = 0; i < kandidaten.length; i += 100) {
       try {
         Object.assign(map, await modrinth.api('/version_files/update', {
-          hashes: kandidaten.slice(i, i + 100).map(k => k.hash), algorithm: 'sha1', loaders: ['fabric'], game_versions: [v]
+          hashes: kandidaten.slice(i, i + 100).map(k => k.hash), algorithm: 'sha1', loaders: [require('./core').modLoader(v)], game_versions: [v]
         }));
       } catch (e) { log(`Import: Modrinth lookup failed: ${e.message}`, 'warn'); }
     }

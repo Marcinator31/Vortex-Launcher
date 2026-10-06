@@ -22,7 +22,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { shell } = require('electron');
 const {
-  paths, ensureDir, exists, loadJson, writeJson, log, compareVersions, isValidMinecraftVersion
+  paths, ensureDir, exists, loadJson, writeJson, log, compareVersions, isValidMinecraftVersion, fabricMeta, isLegacyVersion
 } = require('./core');
 const settings = require('./settings');
 const { readModInfo } = require('./jarinfo');
@@ -69,7 +69,7 @@ async function addVersion(version) {
   if (isKnown(v)) return v;
   // Pruefen, ob Fabric diese Version ueberhaupt kennt -- sonst gibt es spaeter
   // einen unverstaendlichen Fehler beim Start.
-  const res = await fetch(`https://meta.fabricmc.net/v2/versions/loader/${encodeURIComponent(v)}`,
+  const res = await fetch(`${fabricMeta(v)}/v2/versions/loader/${encodeURIComponent(v)}`,
     { signal: AbortSignal.timeout(15000) }).catch(() => null);
   if (!res || !res.ok) throw new Error('Fabric could not be reached to check this version. Check your internet connection and try again.');
   const list = await res.json().catch(() => []);
@@ -254,7 +254,7 @@ function cachedFabricProfile(version) {
 async function ensureFabric(version) {
   const cached = cachedFabricProfile(version);
   try {
-    const res = await fetch(`https://meta.fabricmc.net/v2/versions/loader/${encodeURIComponent(version)}`,
+    const res = await fetch(`${fabricMeta(version)}/v2/versions/loader/${encodeURIComponent(version)}`,
       { signal: AbortSignal.timeout(12000) });
     if (!res.ok) throw new Error(`Fabric meta answered ${res.status}`);
     const loaders = await res.json();
@@ -262,7 +262,7 @@ async function ensureFabric(version) {
     if (!pick?.loader?.version) throw new Error(`No Fabric Loader exists for Minecraft ${version}.`);
     const id = `fabric-loader-${pick.loader.version}-${version}`;
     if (cached === id) return { profileId: id, loaderVersion: pick.loader.version };
-    const pr = await fetch(`https://meta.fabricmc.net/v2/versions/loader/${encodeURIComponent(version)}/${encodeURIComponent(pick.loader.version)}/profile/json`,
+    const pr = await fetch(`${fabricMeta(version)}/v2/versions/loader/${encodeURIComponent(version)}/${encodeURIComponent(pick.loader.version)}/profile/json`,
       { signal: AbortSignal.timeout(15000) });
     if (!pr.ok) throw new Error(`Fabric profile answered ${pr.status}`);
     const profile = await pr.json();
@@ -277,6 +277,65 @@ async function ensureFabric(version) {
     }
     throw new Error(`Fabric for Minecraft ${version} could not be prepared: ${error.message}. Check your internet connection.`);
   }
+}
+
+/**
+ * Legacy Fabric (1.8.9 ...) liefert LWJGL 2 neu, inkl. der nativen Teile als
+ * Bibliothek mit "natives" (lwjgl-platform). minecraft-launcher-core kennt
+ * dieses Format bei eigenen Profilen nicht: Es laedt eine (nicht existierende)
+ * normale Jar -- 404-Seite im Klassenpfad, Fabric bricht ab ("error in opening
+ * zip file"). Deshalb: solche Eintraege aus dem Profil nehmen und die nativen
+ * Dateien selbst in den natives-Ordner legen, den MCLC benutzt.
+ */
+function nativeKey() {
+  return process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'osx' : 'linux';
+}
+function fixLegacyProfile(version, profileId) {
+  const file = path.join(paths.instanceRoot(version), 'versions', profileId, `${profileId}.json`);
+  const profile = loadJson(file, null);
+  if (!profile || !Array.isArray(profile.libraries)) return [];
+  const natives = profile.libraries.filter(l => l && l.natives && l.url);
+  if (!natives.length) return Array.isArray(profile.vortexNatives) ? profile.vortexNatives : [];
+  profile.libraries = profile.libraries.filter(l => !(l && l.natives && l.url));
+  profile.vortexNatives = [...(profile.vortexNatives || []), ...natives];
+  writeJson(file, profile);
+  log(`${version}: ${natives.length} native librar${natives.length === 1 ? 'y' : 'ies'} moved out of the Fabric profile.`);
+  return profile.vortexNatives;
+}
+async function ensureLegacyNatives(version, profileId) {
+  const libs = fixLegacyProfile(version, profileId);
+  if (!libs.length) return;
+  const dir = path.join(paths.instanceRoot(version), 'natives', version);
+  const marker = path.join(dir, '.vortex-natives.json');
+  const want = libs.map(l => `${l.name}:${l.natives[nativeKey()] || ''}`).join('|');
+  if (loadJson(marker, {}).libs === want) return;
+  // Alte (z. B. von Mojang) entfernen -- sonst nimmt MCLC den Ordner wie er ist
+  fs.rmSync(dir, { recursive: true, force: true });
+  ensureDir(dir);
+  const zip = require('./zip');
+  for (const l of libs) {
+    const classifier = String(l.natives[nativeKey()] || '').replace('${arch}', process.arch === 'ia32' ? '32' : '64');
+    if (!classifier) continue;
+    const [group, artifact, ver] = String(l.name).split(':');
+    const url = `${l.url.replace(/\/?$/, '/')}${group.replace(/\./g, '/')}/${artifact}/${ver}/${artifact}-${ver}-${classifier}.jar`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(60000) });
+    if (!res.ok) throw new Error(`Native files for Minecraft ${version} could not be downloaded (${res.status}).`);
+    const tmp = path.join(dir, `${artifact}-${classifier}.jar`);
+    fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
+    const z = zip.open(tmp);
+    const exclude = (l.extract && Array.isArray(l.extract.exclude)) ? l.extract.exclude : ['META-INF/'];
+    for (const name of z.names) {
+      if (name.endsWith('/') || exclude.some(e => name.startsWith(e))) continue;
+      const rel = name.split('/').filter(x => x && x !== '..').join(path.sep);
+      const data = z.read(name, 64 * 1024 * 1024);
+      if (!data || !rel) continue;
+      ensureDir(path.dirname(path.join(dir, rel)));
+      fs.writeFileSync(path.join(dir, rel), data);
+    }
+    fs.rmSync(tmp, { force: true });
+  }
+  writeJson(marker, { libs: want });
+  log(`${version}: native files (${libs.map(l => l.name.split(':')[1]).join(', ')}) prepared.`);
 }
 
 /** Ist Minecraft fuer diese Version schon heruntergeladen? (MCLC legt das Jar in den Fabric-Ordner.) */
@@ -311,6 +370,7 @@ async function prepare(version) {
     throw new Error(`An old Vortex file is still in use (${sync.locked.join(', ')}). Is Minecraft ${v} still running? Close it (or end "OpenJDK Platform binary" in the Task Manager) and press Play again.`);
   }
   const fabric = await ensureFabric(v);
+  if (isLegacyVersion(v)) await ensureLegacyNatives(v, fabric.profileId);
   return { version: v, ...fabric, ...sync, vortex: bundledVersions().includes(v), hasFabricApi: hasFabricApi(v) };
 }
 

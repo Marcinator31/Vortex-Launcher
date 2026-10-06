@@ -54,6 +54,13 @@ Module._load = function (req, parent) {
   return load.apply(this, arguments);
 };
 
+// Das echte Vortex-Manifest nicht holen: sonst ersetzt es unser lokales (mit der Test-Jar)
+const echtesFetch = global.fetch;
+global.fetch = (url, ...rest) => {
+  if (/vortex-files\/manifest/.test(String(url))) return Promise.reject(new Error('lab: no remote manifest'));
+  return echtesFetch(url, ...rest);
+};
+
 (async () => {
   const src = path.resolve('src', 'main');
   const core = require(path.join(src, 'core'));
@@ -80,10 +87,17 @@ Module._load = function (req, parent) {
 
   settings.set({ selectedVersion: V, javaPath: process.env.LAB_JAVA || '', width: 1280, height: 720, memoryMax: 2048, memoryMin: 1024, jvmPreset: 'default' });
 
-  // Vortex-Jar wie ein eigener Mod einlegen
+  // Vortex-Jar wie eine veroeffentlichte Vortex-Datei (lokales Manifest) -- so wie Spieler sie bekommen
   if (process.env.LAB_JAR) {
-    const r = instances.importMods(V, [process.env.LAB_JAR]);
-    pruefe('Vortex-Jar in den Mods-Ordner', r.added.length === 1, r.added.join(', ') || r.skipped.join(', '));
+    const crypto = require('crypto');
+    const buf = fs.readFileSync(process.env.LAB_JAR);
+    const name = `vortexclient-fabric-${V}-lab+${V}.jar`;
+    const dir = path.join(core.paths.dataRoot, 'vortex-files');
+    fs.mkdirSync(path.join(dir, V), { recursive: true });
+    fs.writeFileSync(path.join(dir, V, name), buf);
+    core.writeJson(path.join(dir, 'manifest.json'), { schema: 1, versions: { [V]: { files: { vortexclient: {
+      file: name, version: `lab+${V}`, name: 'Vortex Client', sha256: crypto.createHash('sha256').update(buf).digest('hex'), size: buf.length } } } } });
+    pruefe('1.8.9 ist eine Vortex-Version', instances.bundledVersions().includes(V), instances.bundledVersions().join(', '));
   }
 
   let sitzung;
@@ -104,7 +118,7 @@ Module._load = function (req, parent) {
   for (let i = 0; i < 48 && !(vortex && title); i++) {
     await sleep(5000);
     const g = gameLog() + '\n' + zeilen.join('\n');
-    vortex = vortex || /\[Vortex\] Vortex Client for 1\.8\.9 loaded|Vortex Client/.test(g);
+    vortex = vortex || /\[Vortex\] Vortex Client for 1\.8\.9 loaded/.test(g);
     sound = sound || /Sound engine started|SoundSystem started/i.test(g);
     title = title || /Created: \d+x\d+ textures-atlas|Sound engine started/i.test(g);
     if (/Crash report saved|---- Minecraft Crash Report ----|Exception in thread "main"/.test(g)) { pruefe('kein Absturz', false); break; }
@@ -117,6 +131,15 @@ Module._load = function (req, parent) {
     say(`Bild: screen-${V}.png`);
   } catch (e) { say(`Kein Bild: ${e.message}`); }
   try { fs.copyFileSync(path.join(core.paths.instanceRoot(V), 'logs', 'latest.log'), path.join(OUT, `latest-${V}.log`)); } catch (_) {}
+  // Fabric-Profil und Bibliotheken fuer die Fehlersuche
+  try {
+    const vdir = path.join(core.paths.instanceRoot(V), 'versions');
+    for (const d of fs.readdirSync(vdir)) { const j = path.join(vdir, d, `${d}.json`); if (fs.existsSync(j)) fs.copyFileSync(j, path.join(OUT, `profile-${d}.json`)); }
+    const libs = [];
+    const walk = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else libs.push(`${fs.statSync(p).size}\t${path.relative(core.paths.instanceRoot(V), p)}`); } };
+    walk(path.join(core.paths.instanceRoot(V), 'libraries'));
+    fs.writeFileSync(path.join(OUT, `libraries-${V}.txt`), libs.join('\n'));
+  } catch (e) { say(`Profil/Bibliotheken: ${e.message}`); }
   try { launch.stop(sitzung.id || sitzung); } catch (_) {}
   try { execFileSync('pkill', ['-f', 'net.fabricmc.loader']); } catch (_) {}
   core.log = origLog;

@@ -92,6 +92,13 @@
     'A profile with this name already exists.': 'Ein Profil mit diesem Namen gibt es schon.', 'At most 30 profiles per version.': 'Höchstens 30 Profile pro Version.',
     'Switch to another profile first.': 'Wechsle zuerst zu einem anderen Profil.', 'The standard profile cannot be removed.': 'Das Standard-Profil lässt sich nicht löschen.',
 
+    // --- Wallpaper (2.5) ---
+    'Wallpaper': 'Hintergrundbild', 'Real Minecraft scenes on the start page. Slideshow switches between all of them.': 'Echte Minecraft-Szenen auf der Startseite. Die Diashow wechselt zwischen allen.',
+    'Change every': 'Wechseln alle', 'How long one wallpaper stays in the slideshow.': 'Wie lange ein Bild in der Diashow bleibt.', 'Each start': 'Je Start',
+    'Slow camera motion': 'Langsame Kamerafahrt', 'The picture drifts and zooms very slowly.': 'Das Bild schwenkt und zoomt ganz langsam.',
+    'Wallpaper behind every page': 'Hintergrundbild hinter allen Seiten', 'A soft, blurred glow of the wallpaper behind the whole launcher.': 'Ein weicher, unscharfer Schein des Bildes hinter dem ganzen Launcher.',
+    'Slideshow': 'Diashow', 'Previous wallpaper': 'Vorheriges Bild', 'Next wallpaper': 'Nächstes Bild',
+
     // --- Mods ---
     'Add Fabric mods from Modrinth or your own .jar files.': 'Füge Fabric-Mods von Modrinth oder eigene .jar-Dateien hinzu.', 'Filter installed mods': 'Installierte Mods filtern',
     'Check for updates': 'Nach Updates suchen', 'Performance pack': 'Performance-Paket', 'Sodium, Lithium and Entity Culling': 'Sodium, Lithium und Entity Culling',

@@ -2486,6 +2486,7 @@
     $('#setMusicAuto').checked = Boolean(c.musicAutoplay);
     $('#setMusicPause').checked = c.musicPauseInGame !== false;
     renderAccents();
+    renderWallpaperSettings();
     $('#setBetaRow').hidden = !(S.betaAllowed || S.adminVisible);
     $('#setBeta').checked = Boolean(c.betaChannel);
     $('#setConsoleCrash').checked = c.showConsoleOnCrash !== false;
@@ -2555,6 +2556,133 @@
     applyAccent(b.dataset.accent);
     saveSettings({ accent: b.dataset.accent }).then(renderAccents);
   };
+
+
+  // -----------------------------------------------------------------------
+  // Wallpaper (2.5): echte Minecraft-Szenen auf der Startseite, weiche
+  // Ueberblendung, langsames Schwenken; dazu ein unscharfer Schein hinter
+  // allen Seiten. Bilder: assets/wallpapers (wallpapers.js listet sie).
+  // -----------------------------------------------------------------------
+  const WALLPAPERS = Array.isArray(window.VORTEX_WALLPAPERS) ? window.VORTEX_WALLPAPERS : [];
+  const WP = { idx: -1, front: 0, timer: null, shown: null, loaded: new Map() };
+  const wpUrl = w => `../../assets/wallpapers/${w.file}`;
+  const reducedMotion = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function wpPreload(w) {
+    if (WP.loaded.has(w.id)) return WP.loaded.get(w.id);
+    const p = new Promise(resolve => {
+      const img = new Image();
+      img.onload = () => (img.decode ? img.decode().catch(() => {}) : Promise.resolve()).then(() => resolve(true));
+      img.onerror = () => resolve(false);
+      img.src = wpUrl(w);
+    });
+    WP.loaded.set(w.id, p);
+    return p;
+  }
+  function wpChoice() {
+    const s = S.settings.wallpaper || 'slideshow';
+    if (s === 'off' || !WALLPAPERS.length) return null;
+    if (s !== 'slideshow') return WALLPAPERS.find(w => w.id === s) || WALLPAPERS[0];
+    return 'slideshow';
+  }
+  /** Bild zeigen: in die hintere Ebene laden, dann weich ueberblenden. */
+  async function wpShow(w) {
+    if (!w || (WP.shown && WP.shown.id === w.id)) return;
+    WP.shown = w;
+    const ok = await wpPreload(w);
+    if (!ok || WP.shown !== w) return;
+    const motion = S.settings.wallpaperMotion !== false && !reducedMotion();
+    const dauer = Math.max(40, (Number(S.settings.wallpaperInterval) || 60) + 8);
+    // Schwenk-Richtung je Bild leicht anders, Mittelpunkt aus "focus" (wo das Motiv ist)
+    const [fx, fy] = Array.isArray(w.focus) ? w.focus : [50, 50];
+    const dir = WALLPAPERS.indexOf(w) % 2 ? -1 : 1;
+    WP.front ^= 1;
+    for (const stage of [$('#wpStage'), $('#wpBackdrop')]) {
+      if (!stage) continue;
+      const layers = $$(stage.id === 'wpStage' ? '.wp-layer' : '.wb-layer', stage);
+      const next = layers[WP.front], prev = layers[WP.front ^ 1];
+      next.style.backgroundImage = `url("${wpUrl(w)}")`;
+      next.style.backgroundPosition = `${fx}% ${fy}%`;
+      next.style.setProperty('--kb-x', `${dir * 2.2}%`);
+      next.style.setProperty('--kb-y', `${(fy > 55 ? -1 : 1) * 1.2}%`);
+      next.style.setProperty('--kb-dur', `${dauer}s`);
+      next.style.transformOrigin = `${fx}% ${fy}%`;
+      next.classList.remove('kb');
+      void next.offsetWidth; // Animation neu starten
+      if (motion && stage.id === 'wpStage') next.classList.add('kb');
+      next.classList.add('on');
+      prev.classList.remove('on');
+    }
+    $('#wpName').textContent = w.name;
+    $('#wpChip').hidden = false;
+    // Das naechste schon mal vorladen
+    if (wpChoice() === 'slideshow') wpPreload(WALLPAPERS[(WALLPAPERS.indexOf(w) + 1) % WALLPAPERS.length]);
+  }
+  function wpStep(d) {
+    if (!WALLPAPERS.length) return;
+    WP.idx = (WP.idx + d + WALLPAPERS.length) % WALLPAPERS.length;
+    wpShow(WALLPAPERS[WP.idx]);
+  }
+  function wpSchedule() {
+    clearInterval(WP.timer); WP.timer = null;
+    const sec = Number(S.settings.wallpaperInterval) || 0;
+    if (wpChoice() === 'slideshow' && sec > 0) WP.timer = setInterval(() => { if (!document.hidden) wpStep(1); }, sec * 1000);
+  }
+  function applyWallpaper() {
+    const c = wpChoice();
+    const on = Boolean(c);
+    $('#app').classList.toggle('wp-on', on);
+    $('#app').classList.toggle('wp-backdrop-on', on && S.settings.wallpaperBackdrop !== false);
+    $('.hero').classList.toggle('has-wp', on);
+    if (!on) {
+      clearInterval(WP.timer); WP.shown = null; $('#wpChip').hidden = true;
+      $$('#wpStage .wp-layer, #wpBackdrop .wb-layer').forEach(l => l.classList.remove('on', 'kb'));
+      return;
+    }
+    if (c === 'slideshow') {
+      if (WP.idx < 0) {
+        // Je Start ein anderes: Zufall, aber nicht dasselbe wie beim letzten Mal
+        let last = -1;
+        try { last = Number(localStorage.getItem('vx.wp.last') ?? -1); } catch (_) {}
+        WP.idx = Math.floor(Math.random() * WALLPAPERS.length);
+        if (WALLPAPERS.length > 1 && WP.idx === last) WP.idx = (WP.idx + 1) % WALLPAPERS.length;
+        try { localStorage.setItem('vx.wp.last', String(WP.idx)); } catch (_) {}
+      }
+      wpShow(WALLPAPERS[WP.idx]);
+    } else {
+      WP.idx = WALLPAPERS.indexOf(c);
+      wpShow(c);
+    }
+    $$('#wpChip .wp-nav').forEach(b => { b.hidden = c !== 'slideshow'; });
+    wpSchedule();
+  }
+  $('#wpChip').addEventListener('click', e => {
+    const b = e.target.closest('[data-wp]');
+    if (!b) return;
+    wpStep(Number(b.dataset.wp));
+    wpSchedule(); // nach Hand-Wechsel wieder volle Zeit
+  });
+  function renderWallpaperSettings() {
+    const cur = S.settings.wallpaper || 'slideshow';
+    const thumbs = WALLPAPERS.slice(0, 4).map(w => `<i style="background-image:url('${esc(wpUrl(w))}')"></i>`).join('');
+    $('#setWallpaper').innerHTML = `
+      <button class="wp-tile mix ${cur === 'slideshow' ? 'active' : ''}" data-wpset="slideshow"><span class="wp-mosaic">${thumbs}</span><b>${esc(t('Slideshow'))}</b></button>
+      ${WALLPAPERS.map(w => `<button class="wp-tile ${cur === w.id ? 'active' : ''}" data-wpset="${esc(w.id)}" style="background-image:url('${esc(wpUrl(w))}')"><b>${esc(w.name)}</b></button>`).join('')}
+      <button class="wp-tile off ${cur === 'off' ? 'active' : ''}" data-wpset="off">${icon('x')}<b>${esc(t('Off'))}</b></button>`;
+    $$('#setWpInterval button').forEach(b => b.classList.toggle('active', Number(b.dataset.value) === Number(S.settings.wallpaperInterval ?? 60)));
+    $('#setWpMotion').checked = S.settings.wallpaperMotion !== false;
+    $('#setWpBackdrop').checked = S.settings.wallpaperBackdrop !== false;
+  }
+  $('#setWallpaper').onclick = e => {
+    const b = e.target.closest('[data-wpset]');
+    if (!b) return;
+    saveSettings({ wallpaper: b.dataset.wpset }).then(() => { WP.shown = null; applyWallpaper(); renderWallpaperSettings(); });
+  };
+  $('#setWpInterval').onclick = e => {
+    const b = e.target.closest('button[data-value]');
+    if (b) saveSettings({ wallpaperInterval: Number(b.dataset.value) }).then(() => { renderWallpaperSettings(); wpSchedule(); });
+  };
+  $('#setWpMotion').onchange = e => saveSettings({ wallpaperMotion: e.target.checked }).then(() => { WP.shown = null; applyWallpaper(); });
+  $('#setWpBackdrop').onchange = e => saveSettings({ wallpaperBackdrop: e.target.checked }).then(applyWallpaper);
 
   // -----------------------------------------------------------------------
   // Musik
@@ -3987,6 +4115,7 @@
     S.contentVersion = selected();
     if (S.pendingJoin) setTimeout(() => handleJoin(S.pendingJoin), 600);
     applyAccent(S.settings.accent);
+    applyWallpaper();
     $('#muVol').value = S.settings.musicVolume ?? 0.4;
     musicPaint();
     if (S.settings.musicAutoplay && !S.sessions.length) setTimeout(() => musicNext(1), 1200);

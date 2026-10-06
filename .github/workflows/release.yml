@@ -24,6 +24,10 @@ on:
       - 'docs/**'
       # Freunde-Server laeuft woanders (Render/VPS) -- kein Launcher-Update
       - 'server/**'
+      # Menue-Panoramen fuer den Client (werden vom Spiel direkt geladen)
+      - 'wallpapers/**'
+      # Werkzeuge/Labore
+      - 'tools/**'
   workflow_dispatch:
 
 # Mehrere Aenderungen kurz hintereinander: nur der neueste Build laeuft zu Ende.

@@ -15,6 +15,7 @@
  */
 const crypto = require('crypto');
 const cosmetics = require('./cosmetics');
+const music = require('./music');
 
 const now = () => Date.now();
 const LIMITS = {
@@ -100,6 +101,10 @@ class Hub {
     // Duerfen eigene Cape-Bilder entfernen/sperren (Minecraft-Namen)
     this.cosmeticAdmins = new Set(cosmeticAdmins.map(s => String(s).toLowerCase()));
     this.lastImageUpload = new Map();
+    /** Musik: uuid -> { track, at } (nur im Speicher, siehe music.js) */
+    this.music = new Map();
+    this.lastMusicSet = new Map();
+    this.lastEmote = new Map();
     this.users = new Map();
     this.byName = new Map();
     this.friends = new Map();
@@ -236,6 +241,7 @@ class Hub {
     set.delete(conn);
     if (!set.size) {
       this.conns.delete(conn.uuid);
+      this.music.delete(conn.uuid);
       const u = this.users.get(conn.uuid);
       if (u && u.status.mode !== 'invisible') {
         u.lastSeen = now();
@@ -993,6 +999,66 @@ Object.assign(OPS, {
     else if (a.action !== 'remove') fail('Unknown action.');
     this.log(`cosmetics: ${this.users.get(me)?.name} -> ${a.action} for ${this.users.get(target)?.name || target}`);
     return { done: true };
+  }
+});
+
+// ---- Musik und Emotes ------------------------------------------------------
+// Musik: was jemand auf Spotify hoert (siehe music.js). Lesbar fuer alle, ausser
+// wer blockiert ist bzw. selbst blockiert hat.
+// Emotes: an alle Vortex-Spieler auf demselben Minecraft-Server weiterreichen.
+
+Object.assign(OPS, {
+  async 'music.set'(me, a) {
+    const t = music.cleanTrack(a.track);
+    if (!t) { this.music.delete(me); return { sharing: false }; }
+    const last = this.lastMusicSet.get(me) || 0;
+    const prev = this.music.get(me);
+    // Zu oft: nur annehmen, wenn sich der Song oder Play/Pause geaendert hat
+    if (now() - last < music.LIMITS.setEveryMs && prev && prev.track.id === t.id && prev.track.playing === t.playing) return { sharing: true };
+    this.lastMusicSet.set(me, now());
+    this.music.set(me, { track: t, at: now(), friendsOnly: a.visibility === 'friends' });
+    return { sharing: true };
+  },
+
+  async 'music.clear'(me) {
+    this.music.delete(me);
+    return { sharing: false };
+  },
+
+  async 'music.get'(me, a) {
+    const ids = [...new Set((Array.isArray(a.uuids) ? a.uuids : []).map(x => String(x).replace(/-/g, '').toLowerCase()))]
+      .filter(x => /^[0-9a-f]{32}$/.test(x)).slice(0, music.LIMITS.getMax);
+    const players = {};
+    const t = now();
+    for (const uuid of ids) {
+      const e = this.music.get(uuid);
+      if (!e) continue;
+      if (t - e.at > music.LIMITS.ttlMs) { this.music.delete(uuid); continue; }
+      if (this.hasBlocked(me, uuid) || this.hasBlocked(uuid, me)) continue;
+      if (e.friendsOnly && uuid !== me && !this.isFriend(uuid, me)) continue;
+      // ageMs statt Zeitstempel: die Uhren von Client und Server muessen nicht stimmen
+      players[uuid] = { ...e.track, ageMs: t - e.at };
+    }
+    return { players };
+  },
+
+  async 'emote.play'(me, a, conn) {
+    const emote = String(a.emote || '');
+    if (!music.EMOTE.test(emote)) fail('Unknown emote.');
+    const last = this.lastEmote.get(me) || 0;
+    if (now() - last < music.LIMITS.emoteEveryMs) return { sent: 0 };
+    this.lastEmote.set(me, now());
+    const address = conn?.activity?.mode === 'server' ? conn.activity.address : '';
+    if (!address) return { sent: 0 };
+    let sent = 0;
+    for (const [uuid, set] of this.conns) {
+      if (uuid === me || this.hasBlocked(uuid, me) || this.hasBlocked(me, uuid)) continue;
+      for (const c of set) {
+        if (c.kind !== 'game' || c.activity?.mode !== 'server' || c.activity.address !== address) continue;
+        try { c.send({ t: 'ev', ev: 'emote', data: { uuid: me, emote } }); sent++; } catch (_) {}
+      }
+    }
+    return { sent };
   }
 });
 

@@ -242,6 +242,49 @@ const rejects = async (p, re) => { try { await p; } catch (e) { assert.match(e.m
     await rejects(alice.req('cosmetics.image', { image: pngKopf(512, 256) }), /cannot upload/);
     assert.equal((await dave.req('cosmetics.reports')).reports.length, 0);
 
+    // --- Musik: was jemand hoert, fuer alle lesbar (ausser blockiert), nur im Speicher
+    const song = { id: '4cOdK2wGLETKBW3PvgPWqT', title: 'Never Gonna Give You Up', artist: 'Rick Astley', album: 'Whenever You Need Somebody',
+      image: 'https://i.scdn.co/image/ab67616d0000b27315ebbedaacef61af244262a8', durationMs: 213573, progressMs: 42000, playing: true };
+    assert.equal((await alice.req('music.set', { track: song })).sharing, true);
+    let mg = await bob.req('music.get', { uuids: [a.uuid, bob.me.uuid, 'kaputt'] });
+    assert.equal(mg.players[a.uuid].title, 'Never Gonna Give You Up');
+    assert.equal(mg.players[a.uuid].progressMs, 42000);
+    assert.ok(mg.players[a.uuid].ageMs >= 0 && mg.players[a.uuid].ageMs < 2000);
+    assert.equal(mg.players[bob.me.uuid], undefined);
+    mg = await carl.req('music.get', { uuids: [a.uuid] });
+    assert.equal(mg.players[a.uuid], undefined, 'Carl blocked Alice');
+    // fremde Bild-Adressen werden nicht weitergegeben, Text gekuerzt
+    await bob.req('music.set', { track: { ...song, id: '0VjIjW4GlUZAMYd2vXMi3b', title: 'x'.repeat(500), image: 'https://evil.example/a.png' } });
+    mg = await alice.req('music.get', { uuids: [bob.me.uuid] });
+    assert.equal(mg.players[bob.me.uuid].image, '');
+    assert.equal(mg.players[bob.me.uuid].title.length, 120);
+    // nur fuer Freunde: Dave (kein Freund von Bob) sieht es nicht, Carl (Freund) schon
+    await sleep(1600);
+    await bob.req('music.set', { track: { ...song, id: '', title: 'Aus der App' }, visibility: 'friends' });
+    assert.equal(bob.state.friends.some(f => f.name === 'Dave'), false);
+    assert.equal((await carl.req('music.get', { uuids: [bob.me.uuid] })).players[bob.me.uuid].title, 'Aus der App');
+    assert.equal((await dave.req('music.get', { uuids: [bob.me.uuid] })).players[bob.me.uuid], undefined);
+    // ungueltiger Song = nicht mehr teilen
+    assert.equal((await bob.req('music.set', { track: { id: 'nope', title: 'x' } })).sharing, false);
+    mg = await alice.req('music.get', { uuids: [bob.me.uuid] });
+    assert.equal(mg.players[bob.me.uuid], undefined);
+    await alice.req('music.clear');
+    assert.equal((await bob.req('music.get', { uuids: [a.uuid] })).players[a.uuid], undefined);
+    await alice.req('music.set', { track: song });
+
+    // --- Emotes: an Vortex-Spieler auf demselben Server
+    const daveGame = new Client(url, 'Dave', 'game'); await daveGame.connect();
+    await daveGame.req('activity', { mode: 'server', address: 'mc.hypixel.net', serverName: 'Hypixel', version: '26.2' });
+    const carlGame = new Client(url, 'Carl', 'game'); await carlGame.connect();
+    await carlGame.req('activity', { mode: 'server', address: 'play.other.net', serverName: 'Other', version: '26.2' });
+    const em = await bobGame.req('emote.play', { emote: 'wave' });
+    assert.equal(em.sent, 1, 'only Dave is on the same server');
+    const gotEmote = await daveGame.wait('emote', d => d.emote === 'wave');
+    assert.equal(gotEmote.uuid, bob.me.uuid);
+    assert.equal((await bobGame.req('emote.play', { emote: 'wave' })).sent, 0, 'rate limit');
+    await rejects(bobGame.req('emote.play', { emote: '<script>' }), /Unknown emote/);
+    daveGame.close(); carlGame.close();
+
     // Freund entfernen
     await alice.req('friend.remove', { uuid: bob.me.uuid });
     await sleep(50);
@@ -256,6 +299,7 @@ const rejects = async (p, re) => { try { await p; } catch (e) { assert.match(e.m
     bob.clear();
     alice.close();
     await sleep(150);
+    assert.equal((await bob.req('music.get', { uuids: [a.uuid] })).players[a.uuid], undefined, 'offline: no music');
 
     // Neustart: Daten sind noch da
     await srv.stop();

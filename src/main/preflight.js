@@ -25,7 +25,8 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { log, compareVersions } = require('./core');
+const { log, compareVersions, isLegacyVersion } = require('./core');
+const { readModInfo } = require('./jarinfo');
 const instances = require('./instances');
 
 /** Stellt die Umgebung selbst bereit -- nie als Mod installieren. */
@@ -56,14 +57,80 @@ const KAPUTT = [
 const breaksAll = cond => /^\s*(\*|)\s*$/.test(String(cond || '')) || /^\s*>=?\s*0(\.0)*\s*$/.test(String(cond || ''));
 
 /**
+ * Erlaubt eine Versionsbedingung aus fabric.mod.json ("depends.minecraft")
+ * diese Minecraft-Version? "a || b" = eine davon, "a b" = beide.
+ * Unbekannte Schreibweisen gelten als erlaubt (lieber kein Fehlalarm).
+ */
+function mcErlaubt(cond, v) {
+  const text = String(cond || '').trim();
+  if (!text || text === '*') return true;
+  return text.split('||').some(alt => alt.trim().split(/\s+/).filter(Boolean).every(t => teilErlaubt(t, v)));
+}
+function teilErlaubt(t, v) {
+  const m = t.match(/^(>=|<=|>|<|=|~|\^)?\s*v?([0-9][0-9a-z.+*x-]*)$/i);
+  if (!m) return true;
+  const op = m[1] || '=';
+  let ziel = m[2].split('+')[0];
+  const wild = /(^|\.)[x*]($|\.)/i.test(ziel);
+  if (wild) {
+    const pre = ziel.split('.').filter(p => !/^[x*]$/i.test(p));
+    return v.split('.').slice(0, pre.length).join('.') === pre.join('.');
+  }
+  // Vorabversionen ("26.2-alpha.1") zaehlen wie die Version selbst
+  ziel = ziel.split('-')[0];
+  const c = compareVersions(v, ziel);
+  switch (op) {
+    case '>=': return c >= 0;
+    case '>': return c > 0;
+    case '<=': return c <= 0;
+    case '<': return c < 0;
+    case '~': { const p = ziel.split('.'); return c >= 0 && v.split('.').slice(0, 2).join('.') === p.slice(0, 2).join('.'); }
+    case '^': return c >= 0 && v.split('.')[0] === ziel.split('.')[0];
+    default: return c === 0 || (ziel.split('.').length === 2 && v.startsWith(ziel + '.'));
+  }
+}
+
+/**
+ * Alte Versionen (1.8.9 usw.): Mods fuer neue Versionen bringen das Spiel
+ * sofort zum Absturz ("Incompatible mods found"). Solche Mods werden vor dem
+ * Start ausgeschaltet (.disabled, nichts geloescht):
+ *   - die Mod oder eine eingebettete Mod verlangt eine andere Minecraft-Version
+ *   - sie braucht die Fabric API (die gibt es fuer 1.8 nicht)
+ */
+function legacyAufraeumen(v, managed, result) {
+  const aus = [];
+  for (const m of instances.modsWithIds(v)) {
+    if (!m.enabled || managed.has(m.file.toLowerCase())) continue;
+    const info = readModInfo(m.path) || {};
+    let grund = null;
+    if (!mcErlaubt(info.minecraft, v)) grund = `made for Minecraft ${info.minecraft}`;
+    else if (!mcErlaubt(info.java, '8')) grund = `needs Java ${info.java} (Minecraft ${v} runs on Java 8)`;
+    else if ((info.depends || []).some(d => d === 'fabric-api' || d === 'fabric' || /^fabric-.*-v\d+$/.test(d))) grund = 'needs the Fabric API, which does not exist for this version';
+    else {
+      const falsch = (info.nestedMc || []).filter(n => !mcErlaubt(n.minecraft, v));
+      if (falsch.length) grund = `contains parts for other Minecraft versions (${falsch.slice(0, 2).map(n => n.id).join(', ')})`;
+    }
+    if (!grund) continue;
+    try {
+      fs.renameSync(m.path, `${m.path}.disabled`);
+      aus.push(`${m.name || m.file}`);
+      log(`Preflight: ${m.file} disabled for ${v} -- ${grund}.`);
+    } catch (e) { result.warnings.push(`${m.name} does not work with Minecraft ${v}. Remove it.`); }
+  }
+  return aus;
+}
+
+/**
  * @param {string} version
  * @param {(id:string, v:string)=>Promise<any>} install Modrinth-Installation (modrinth.installMod)
  * @returns {Promise<{installed:string[], disabled:string[], warnings:string[]}>}
  */
 async function run(version, install) {
   const v = instances.requireVersion(version);
-  const result = { installed: [], disabled: [], warnings: [] };
+  const result = { installed: [], disabled: [], warnings: [], incompatible: [] };
   const managed = new Set(instances.activeBundle(v).map(n => n.toLowerCase()));
+  const legacy = isLegacyVersion(v);
+  if (legacy) result.incompatible = legacyAufraeumen(v, managed, result);
   let mods = instances.modsWithIds(v).filter(m => m.enabled && m.id);
 
   // --- 2. Doppelte Mod-IDs ----------------------------------------------------
@@ -121,6 +188,9 @@ async function run(version, install) {
     }
   }
   const versucht = new Set();
+  // Alte Versionen: nichts automatisch nachinstallieren -- Modrinth hat dort
+  // kaum Fabric-Mods, und falsche Treffer machen den Start kaputt.
+  if (legacy) missing.clear();
   for (const [dep, needers] of missing) {
     const target = /^fabric-.*-v\d+$/.test(dep) ? 'fabric-api' : dep;
     if (versucht.has(target)) continue;
@@ -149,4 +219,4 @@ async function run(version, install) {
   return result;
 }
 
-module.exports = { run };
+module.exports = { run, mcErlaubt };

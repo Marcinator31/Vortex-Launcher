@@ -22,8 +22,11 @@ function pickIcon(icon) {
   return null;
 }
 
+const mcBedingung = d => (typeof d?.minecraft === 'string' ? d.minecraft
+  : Array.isArray(d?.minecraft) ? d.minecraft.join(' || ') : '');
+
 /** IDs (und "provides") aller eingebetteten Jars, bis zu zwei Ebenen tief. */
-function nestedIds(buf, entries, meta, depth) {
+function nestedIds(buf, entries, meta, depth, mc = null) {
   const out = [];
   if (depth > 1 || !Array.isArray(meta?.jars)) return out;
   for (const j of meta.jars.slice(0, 120)) {
@@ -35,8 +38,9 @@ function nestedIds(buf, entries, meta, depth) {
       if (!raw) continue;
       const m = JSON.parse(raw.toString('utf8').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, ' '));
       if (m.id) out.push(String(m.id));
+      if (m.id && mc) mc.push({ id: String(m.id), minecraft: mcBedingung(m.depends) });
       if (Array.isArray(m.provides)) out.push(...m.provides.map(String));
-      out.push(...nestedIds(inner, innerEntries, m, depth + 1));
+      out.push(...nestedIds(inner, innerEntries, m, depth + 1, mc));
     } catch (_) {}
   }
   return out;
@@ -65,6 +69,7 @@ function readModInfo(file) {
       }
       const authors = Array.isArray(meta.authors)
         ? meta.authors.map(a => (typeof a === 'string' ? a : a?.name)).filter(Boolean).slice(0, 3) : [];
+      const nestedMc = [];
       result = {
         id: String(meta.id || ''),
         name: String(meta.name || meta.id || ''),
@@ -73,15 +78,17 @@ function readModInfo(file) {
         authors,
         icon,
         // Fuer Admin-Bereich und Absturz-Analyse
-        minecraft: typeof meta.depends?.minecraft === 'string' ? meta.depends.minecraft
-          : Array.isArray(meta.depends?.minecraft) ? meta.depends.minecraft.join(' || ') : '',
+        minecraft: mcBedingung(meta.depends),
+        java: typeof meta.depends?.java === 'string' ? meta.depends.java : Array.isArray(meta.depends?.java) ? meta.depends.java.join(' || ') : '',
         depends: meta.depends && typeof meta.depends === 'object' ? Object.keys(meta.depends) : [],
         provides: Array.isArray(meta.provides) ? meta.provides.map(String) : [],
         // "breaks": { modId: Versionsbedingung } -- fuer die Pruefung vor dem Start
         breaks: meta.breaks && typeof meta.breaks === 'object' && !Array.isArray(meta.breaks)
           ? Object.fromEntries(Object.entries(meta.breaks).map(([k, v]) => [k, Array.isArray(v) ? v.join(' || ') : String(v)])) : {},
         // Mods, die IN dieser Jar stecken (Jar-in-Jar, z. B. die Module der Fabric API)
-        nested: nestedIds(buf, entries, meta, 0)
+        nested: nestedIds(buf, entries, meta, 0, nestedMc),
+        // Minecraft-Bedingungen der eingebetteten Mods (Pruefung vor dem Start)
+        nestedMc
       };
     }
   } catch (_) { result = null; }

@@ -2829,6 +2829,17 @@
       $('i', $('#upBar')).style.width = `${u.progress || 0}%`;
     }
   }
+  // Hat das letzte Update nicht geklappt? Einmal sagen, was jetzt anders laeuft
+  let fehlschlagGesagt = false;
+  function updateFehlschlag() {
+    const f = S.update?.failed;
+    if (!f || fehlschlagGesagt || S.update.portable) return;
+    fehlschlagGesagt = true;
+    const text = f.tries >= 2
+      ? t('The launcher update to version {0} did not install again. Click "Update": the installer is saved to your Downloads folder and opened.', f.version)
+      : t('The launcher update to version {0} did not install. Click "Update" again – this time the installer window opens.', f.version);
+    toast('error', text, [{ label: t('Update now'), run: updateNow }]);
+  }
   async function updateNow() {
     try { S.update = (await call(api.update.now())).update; } catch (e) { fail(e); }
     renderUpdate();
@@ -3290,6 +3301,7 @@
   api.on.update(u => {
     S.update = u || S.update;
     renderUpdate();
+    updateFehlschlag();
     if (S.update.status === 'available' && announced !== S.update.available) {
       announced = S.update.available;
       toast('info', t('New launcher update: version {0}.', S.update.available), [{ label: S.update.portable ? t('Download') : t('Update now'), run: updateNow }]);

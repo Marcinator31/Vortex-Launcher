@@ -81,6 +81,13 @@ jobs:
           echo "::error::npm ci ist dreimal fehlgeschlagen"
           exit 1
 
+      # Mitgelieferte Vortex-Dateien auf den Stand von heute bringen: Wer den
+      # Launcher frisch installiert und (noch) keine Verbindung zum Update-
+      # Server bekommt, hat sonst eine uralte Client-Version im Spiel.
+      - name: Mitgelieferte Vortex-Dateien aktualisieren
+        shell: bash
+        run: python .github/scripts/bundle_vortex_files.py || echo "::warning::Mitgelieferte Vortex-Dateien nicht aktualisiert"
+
       # Tag + Release zuerst anlegen: GitHub verlangt fuer ein veroeffentlichtes
       # Release einen existierenden Tag. electron-builder laedt die EXEs dann in
       # dieses Release hoch.

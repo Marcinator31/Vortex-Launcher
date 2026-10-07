@@ -160,6 +160,7 @@ async function refreshVortexFiles(quiet = true) {
   const r = await vortexfiles.refresh(v => instances.packagedEntries(v));
   for (const u of r.updated) notify('success', `${u.name} ${u.newVersion} for Minecraft ${u.version} downloaded.`);
   if (r.updated.length) core.send('whatsnew', r.updated);
+  if (r.failed?.length) notify('error', `Vortex update could not be downloaded: ${r.failed.join(', ')}. The launcher tries again at the next start.`);
   if (r.updated.length) {
     for (const v of new Set(r.updated.map(u => u.version))) {
       try { if (core.exists(paths.instanceRoot(v))) instances.syncBundled(v); } catch (_) {}

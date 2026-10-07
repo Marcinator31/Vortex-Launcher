@@ -120,11 +120,33 @@ async function release() {
 
 const BETA = 'manifest-beta.json';
 
+/**
+ * Manifest aus dem Release lesen. Klappt das Lesen NICHT, wird abgebrochen
+ * (Fehler) -- frueher kam dann ein leeres Manifest zurueck, und die naechste
+ * Aenderung hat damit alle Eintraege ueberschrieben: alle Spieler bekamen
+ * wieder die uralte, im Installer mitgelieferte Version.
+ */
 async function readRemoteManifest(rel, name = 'manifest.json') {
   const asset = (rel.assets || []).find(a => a.name === name);
-  if (!asset) return { schema: 1, versions: {}, news: [] };
+  if (!asset) {
+    // Wirklich noch keins (neues Release ohne Dateien)? Sonst lieber abbrechen.
+    if ((rel.assets || []).some(a => /\.jar$/i.test(a.name))) throw new Error(`${name} is missing in the release -- nothing was changed. Try again in a minute.`);
+    return { schema: 1, versions: {}, news: [] };
+  }
   const buf = await gh('GET', `/repos/${REPO}/releases/assets/${asset.id}`, { accept: 'application/octet-stream' });
-  try { return vortexfiles.validManifest(JSON.parse(buf.toString('utf8'))); } catch (_) { return { schema: 1, versions: {}, news: [] }; }
+  let roh;
+  try { roh = JSON.parse(buf.toString('utf8')); } catch (_) { roh = null; }
+  if (!roh || typeof roh !== 'object' || typeof roh.versions !== 'object' || roh.versions === null) {
+    throw new Error(`${name} could not be read from GitHub -- nothing was changed. Try again in a minute.`);
+  }
+  return vortexfiles.validManifest(roh);
+}
+
+/** Alle (Version, Mod-ID)-Paare eines Manifests. */
+function eintraege(m) {
+  const out = [];
+  for (const [v, e] of Object.entries(m?.versions || {})) for (const id of Object.keys(e.files || {})) out.push(`${v}/${id}`);
+  return out;
 }
 
 async function uploadAsset(rel, name, data, contentType) {
@@ -140,7 +162,19 @@ async function deleteAssetByName(name) {
   if (a) await gh('DELETE', `/repos/${REPO}/releases/assets/${a.id}`);
 }
 
-async function writeManifest(rel, manifest, name = 'manifest.json') {
+/**
+ * Manifest schreiben -- mit Sicherung: Eintraege, die gerade online stehen,
+ * duerfen nur verschwinden, wenn genau das gewollt ist (entfernen = ["1.21.11/vortexclient"]).
+ * Sonst wird abgebrochen, statt allen Spielern die Vortex-Dateien wegzunehmen.
+ */
+async function writeManifest(rel, manifest, name = 'manifest.json', entfernen = []) {
+  const jetzt = await readRemoteManifest(await release(), name);
+  const neu = new Set(eintraege(manifest));
+  const fehlt = eintraege(jetzt).filter(k => !neu.has(k) && !entfernen.includes(k));
+  if (fehlt.length) {
+    log(`Admin: ${name} NOT written -- it would remove ${fehlt.join(', ')}.`, 'warn');
+    throw new Error(`Safety stop: this change would remove ${fehlt.length} file(s) from ${name} (${fehlt.slice(0, 3).join(', ')}). Nothing was changed -- reload the admin page and try again.`);
+  }
   manifest.updatedAt = new Date().toISOString();
   await uploadAsset(rel, name, Buffer.from(JSON.stringify(manifest, null, 2)), 'application/json');
 }
@@ -359,7 +393,7 @@ async function unpublish(mcVersion, id) {
   if (!f) return {};
   delete manifest.versions[mcVersion].files[id];
   if (!Object.keys(manifest.versions[mcVersion].files).length) delete manifest.versions[mcVersion];
-  await writeManifest(rel, manifest);
+  await writeManifest(rel, manifest, 'manifest.json', [`${mcVersion}/${id}`]);
   try { await deleteIfUnused(f.file); } catch (_) {}
   log(`Admin: ${f.name} removed from Minecraft ${mcVersion}.`);
   return {};

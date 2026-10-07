@@ -144,7 +144,7 @@ async function refresh(bundledFor, { versionsOnly = null } = {}) {
   }
   ensureDir(root());
   writeJson(manifestFile(), remote);
-  const updated = [];
+  const updated = [], failed = [];
   for (const [v, e] of Object.entries(remote.versions)) {
     if (versionsOnly && !versionsOnly.includes(v)) continue;
     const bundled = bundledFor(v);
@@ -163,7 +163,18 @@ async function refresh(bundledFor, { versionsOnly = null } = {}) {
         updated.push({ version: v, id, kind: kindOf(id), name: f.name, newVersion: cleanVersion(f.version), notes: f.notes || '', channel: f.channel || 'stable' });
         log(`Vortex update: ${f.name} ${cleanVersion(f.version)} for Minecraft ${v} downloaded.`);
       } catch (err) {
-        log(`Vortex update ${f.file}: ${err.message}`, 'warn');
+        // Einmal neu versuchen (kurze Netzstoerung), dann melden -- NICHT "alles aktuell" sagen
+        try {
+          const buf = await download(assetUrl(f.file), f.sha256, 200 * 1024 * 1024);
+          ensureDir(path.dirname(target));
+          fs.writeFileSync(`${target}.part`, buf);
+          fs.renameSync(`${target}.part`, target);
+          updated.push({ version: v, id, kind: kindOf(id), name: f.name, newVersion: cleanVersion(f.version), notes: f.notes || '', channel: f.channel || 'stable' });
+          log(`Vortex update: ${f.name} ${cleanVersion(f.version)} for Minecraft ${v} downloaded (2nd try).`);
+        } catch (err2) {
+          log(`Vortex update ${f.file}: ${err.message} / ${err2.message}`, 'warn');
+          failed.push(`${f.name} ${cleanVersion(f.version)} (${v})`);
+        }
       }
     }
   }
@@ -176,6 +187,10 @@ async function refresh(bundledFor, { versionsOnly = null } = {}) {
       for (const f of fs.readdirSync(dir)) if (!keep.has(f)) fs.rmSync(path.join(dir, f), { force: true });
     }
   } catch (_) {}
+  if (failed.length) {
+    lastCheck = { at: Date.now(), ok: false, error: `download failed: ${failed.join(', ')}` };
+    return { updated, failed, error: `Could not download: ${failed.join(', ')}` };
+  }
   lastCheck = { at: Date.now(), ok: true, error: null };
   return { updated };
 }

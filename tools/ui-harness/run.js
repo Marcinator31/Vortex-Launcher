@@ -58,7 +58,7 @@ class BrowserWindow extends Emitter {
 BrowserWindow.all = [];
 const app = Object.assign(new Emitter(), {
   getPath: () => tmp,
-  getVersion: () => require(path.join(ROOT, 'package.json')).version,
+  getVersion: () => process.env.VX_APPVER || require(path.join(ROOT, 'package.json')).version,
   getName: () => 'Vortex Client',
   getAppPath: () => ROOT,
   isPackaged: false,
@@ -122,7 +122,7 @@ async function main() {
 
   const { chromium } = require(require.resolve('playwright', { paths: [require('child_process').execSync('npm root -g').toString().trim()] }));
   const browser = await chromium.launch();
-  const page = await browser.newPage({ viewport: { width: Number(process.env.VX_W || 1280), height: Number(process.env.VX_H || 800) }, deviceScaleFactor: 1 });
+  const page = await browser.newPage({ viewport: { width: Number(process.env.VX_W || 1280), height: Number(process.env.VX_H || 800) }, deviceScaleFactor: Number(process.env.VX_DPR || 1) });
   const errors = [];
   page.on('pageerror', e => errors.push(String(e.stack || e)));
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });

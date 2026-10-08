@@ -40,8 +40,10 @@ function cleanTrack(a) {
     title,
     artist: clean(a.artist, 120),
     album: clean(a.album, 120),
-    // Nur Spotify-Cover (i.scdn.co) -- keine beliebigen Adressen an andere weitergeben
-    image: /^https:\/\/i\.scdn\.co\/image\/[A-Za-z0-9]{10,64}$/.test(image) ? image : '',
+    // Nur Spotify-Cover (i.scdn.co) und iTunes-Cover (fuer Songs aus der Spotify-App
+    // ohne Anmeldung) -- keine beliebigen Adressen an andere weitergeben
+    image: /^https:\/\/i\.scdn\.co\/image\/[A-Za-z0-9]{10,64}$/.test(image)
+      || /^https:\/\/is[1-5]-ssl\.mzstatic\.com\/image\/thumb\/[A-Za-z0-9/._%-]{10,300}$/.test(image) ? image : '',
     durationMs,
     progressMs: Math.min(zahl(a.progressMs, 6 * 3600 * 1000), durationMs || Infinity),
     playing: Boolean(a.playing)

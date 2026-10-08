@@ -1014,7 +1014,8 @@ Object.assign(OPS, {
     const last = this.lastMusicSet.get(me) || 0;
     const prev = this.music.get(me);
     // Zu oft: nur annehmen, wenn sich der Song oder Play/Pause geaendert hat
-    if (now() - last < music.LIMITS.setEveryMs && prev && prev.track.id === t.id && prev.track.playing === t.playing) return { sharing: true };
+    // (Songs aus der Spotify-App haben keine ID -- dort zaehlt der Titel)
+    if (now() - last < music.LIMITS.setEveryMs && prev && prev.track.id === t.id && prev.track.title === t.title && prev.track.playing === t.playing) return { sharing: true };
     this.lastMusicSet.set(me, now());
     this.music.set(me, { track: t, at: now(), friendsOnly: a.visibility === 'friends' });
     return { sharing: true };

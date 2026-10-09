@@ -1,6 +1,6 @@
 'use strict';
 /**
- * Cosmetics (Cape, Hut, Partikel) -- Hilfen fuer den Freunde-Server.
+ * Cosmetics (Cape, Hut, Aura/Partikel, Bandana, Face, Back, Schild) -- Hilfen fuer den Freunde-Server.
  *
  * Jeder Spieler legt seine Auswahl ab; alle Vortex-Spieler duerfen sie lesen
  * (sie sehen die Cosmetics ja ohnehin im Spiel). Eigene Cape-Bilder kommen
@@ -16,7 +16,11 @@ const LIMITS = { imageBytes: 80 * 1024, uploadEveryMs: 30 * 1000, getMax: 100, r
 function cleanSelection(a) {
   const id = v => (typeof v === 'string' && (v === '' || ID.test(v)) ? v : '');
   const d = Number(a?.density);
-  return { cape: id(a?.cape), hat: id(a?.hat), particles: id(a?.particles), density: d >= 1 && d <= 3 ? Math.round(d) : 2 };
+  return {
+    cape: id(a?.cape), hat: id(a?.hat), particles: id(a?.particles), density: d >= 1 && d <= 3 ? Math.round(d) : 2,
+    // seit Client 4.29: Bandana, Brille/Maske, Ruecken, Schild-Skin ('particles' traegt dort die Aura)
+    bandana: id(a?.bandana), face: id(a?.face), back: id(a?.back), shield: id(a?.shield),
+  };
 }
 
 /** Groesse eines PNG (IHDR) oder JPEG (SOFn) lesen; null = kein solches Bild. */

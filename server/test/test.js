@@ -210,13 +210,15 @@ const rejects = async (p, re) => { try { await p; } catch (e) { assert.match(e.m
     assert.match(up.hash, /^[0-9a-f]{32}$/);
     await rejects(alice.req('cosmetics.image', { image: pngKopf(1024, 512) }), /wait a moment/);
     cs = await alice.req('cosmetics.set', { cape: 'custom', hat: 'crown', particles: 'hearts', density: 3, extra: 'x' });
-    assert.deepEqual(cs.cosmetics, { cape: 'custom', hat: 'crown', particles: 'hearts', density: 3 });
-    cs = await bob.req('cosmetics.set', { cape: 'vortex_blue', hat: 'Top Hat!', particles: '', density: 99 });
-    assert.deepEqual(cs.cosmetics, { cape: 'vortex_blue', hat: '', particles: '', density: 2 });
+    const leer = { bandana: '', face: '', back: '', shield: '' };
+    assert.deepEqual(cs.cosmetics, { cape: 'custom', hat: 'crown', particles: 'hearts', density: 3, ...leer });
+    cs = await bob.req('cosmetics.set', { cape: 'vortex_blue', hat: 'Top Hat!', particles: '', density: 99, bandana: 'lightning', face: 'Bad Id', back: 'teddy_backpack', shield: 'vortex' });
+    assert.deepEqual(cs.cosmetics, { cape: 'vortex_blue', hat: '', particles: '', density: 2, bandana: 'lightning', face: '', back: 'teddy_backpack', shield: 'vortex' });
     let cg = await bob.req('cosmetics.get', { uuids: [a.uuid, bob.me.uuid, 'kaputt', carl.me.uuid] });
     assert.equal(cg.players[a.uuid].image, up.hash);
     assert.equal(cg.players[a.uuid].hat, 'crown');
     assert.equal(cg.players[bob.me.uuid].cape, 'vortex_blue');
+    assert.equal(cg.players[bob.me.uuid].back, 'teddy_backpack', 'new cosmetics (4.29) reach other players');
     assert.equal(cg.players[carl.me.uuid], undefined, 'no cosmetics stored for Carl');
     const bild = await bob.req('cosmetics.imageGet', { hash: up.hash });
     assert.equal(bild.image, pngKopf(512, 256));

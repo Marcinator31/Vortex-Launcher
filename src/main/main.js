@@ -6,7 +6,7 @@
  * Oberflaeche (IPC) und der Lebenszyklus der App. Die eigentliche Arbeit
  * steckt in den Modulen daneben.
  */
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, protocol, net } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, protocol, net, screen } = require('electron');
 const path = require('path');
 const core = require('./core');
 const settings = require('./settings');
@@ -75,8 +75,18 @@ if (!app.requestSingleInstanceLock()) {
 
 function createWindow() {
   Menu.setApplicationMenu(null);
+  // Fenstergroesse nach dem Bildschirm richten: auf kleinen Bildschirmen oder
+  // mit Windows-Skalierung (z. B. 1366x768 bei 125 % = 1093x614 nutzbar) war
+  // das Fenster frueher groesser als der Bildschirm (Mindestgroesse 1060x680),
+  // Knoepfe am Rand lagen dann ausserhalb.
+  const area = (() => {
+    try { return screen.getPrimaryDisplay().workAreaSize; } catch (_) { return { width: 1280, height: 800 }; }
+  })();
+  const minW = Math.min(760, area.width), minH = Math.min(500, area.height);
   const win = new BrowserWindow({
-    width: 1280, height: 800, minWidth: 1060, minHeight: 680,
+    width: Math.max(minW, Math.min(1280, area.width - 40)),
+    height: Math.max(minH, Math.min(800, area.height - 40)),
+    minWidth: minW, minHeight: minH, center: true,
     frame: false, show: false,
     backgroundColor: '#0E0B16',
     title: 'Vortex Client',
